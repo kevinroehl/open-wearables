@@ -1,3 +1,80 @@
+x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+  CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+  SERVER_HOST: ${SERVER_HOST:-}
+  FRONTEND_URL: ${FRONTEND_URL:-}
+  # Database
+  DB_HOST: db
+  DB_PORT: ${DB_PORT:-5432}
+  DB_NAME: ${DB_NAME:-open-wearables}
+  DB_USER: ${DB_USER:-open-wearables}
+  DB_PASSWORD: ${DB_PASSWORD:-open-wearables}
+  # Redis
+  REDIS_HOST: redis
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_DB: ${REDIS_DB:-0}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  REDIS_USERNAME: ${REDIS_USERNAME:-}
+  # Auth
+  ALGORITHM: ${ALGORITHM:-HS256}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+  TOKEN_LIFETIME: ${TOKEN_LIFETIME:-3600}
+  # Admin
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@admin.com}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+  # Sentry
+  SENTRY_ENABLED: ${SENTRY_ENABLED:-False}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_ENV: ${SENTRY_ENV:-production}
+  SENTRY_SAMPLES_RATE: ${SENTRY_SAMPLES_RATE:-0.5}
+  SENTRY_SERVER_NAME: ${SENTRY_SERVER_NAME:-}
+  # Email
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
+  EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Open Wearables}
+  # Sync
+  SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-3600}
+  # AWS / S3
+  RAW_PAYLOAD_STORAGE: ${RAW_PAYLOAD_STORAGE:-disabled}
+  AWS_BUCKET_NAME: ${AWS_BUCKET_NAME:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_REGION: ${AWS_REGION:-eu-north-1}
+  # Providers (all optional)
+  SUUNTO_CLIENT_ID: ${SUUNTO_CLIENT_ID:-}
+  SUUNTO_CLIENT_SECRET: ${SUUNTO_CLIENT_SECRET:-}
+  SUUNTO_SUBSCRIPTION_KEY: ${SUUNTO_SUBSCRIPTION_KEY:-}
+  SUUNTO_REDIRECT_URI: ${SUUNTO_REDIRECT_URI:-}
+  POLAR_CLIENT_ID: ${POLAR_CLIENT_ID:-}
+  POLAR_CLIENT_SECRET: ${POLAR_CLIENT_SECRET:-}
+  POLAR_REDIRECT_URI: ${POLAR_REDIRECT_URI:-}
+  GARMIN_CLIENT_ID: ${GARMIN_CLIENT_ID:-}
+  GARMIN_CLIENT_SECRET: ${GARMIN_CLIENT_SECRET:-}
+  GARMIN_REDIRECT_URI: ${GARMIN_REDIRECT_URI:-}
+  WHOOP_CLIENT_ID: ${WHOOP_CLIENT_ID:-}
+  WHOOP_CLIENT_SECRET: ${WHOOP_CLIENT_SECRET:-}
+  WHOOP_REDIRECT_URI: ${WHOOP_REDIRECT_URI:-}
+  WHOOP_DEFAULT_SCOPE: ${WHOOP_DEFAULT_SCOPE:-}
+  OURA_CLIENT_ID: ${OURA_CLIENT_ID:-}
+  OURA_CLIENT_SECRET: ${OURA_CLIENT_SECRET:-}
+  OURA_REDIRECT_URI: ${OURA_REDIRECT_URI:-}
+  OURA_DEFAULT_SCOPE: ${OURA_DEFAULT_SCOPE:-}
+  OURA_WEBHOOK_VERIFICATION_TOKEN: ${OURA_WEBHOOK_VERIFICATION_TOKEN:-}
+  STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID:-}
+  STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET:-}
+  STRAVA_REDIRECT_URI: ${STRAVA_REDIRECT_URI:-}
+  STRAVA_DEFAULT_SCOPE: ${STRAVA_DEFAULT_SCOPE:-}
+  STRAVA_WEBHOOK_VERIFY_TOKEN: ${STRAVA_WEBHOOK_VERIFY_TOKEN:-}
+  FITBIT_CLIENT_ID: ${FITBIT_CLIENT_ID:-}
+  FITBIT_CLIENT_SECRET: ${FITBIT_CLIENT_SECRET:-}
+  FITBIT_REDIRECT_URI: ${FITBIT_REDIRECT_URI:-}
+  FITBIT_DEFAULT_SCOPE: ${FITBIT_DEFAULT_SCOPE:-}
+  ULTRAHUMAN_CLIENT_ID: ${ULTRAHUMAN_CLIENT_ID:-}
+  ULTRAHUMAN_CLIENT_SECRET: ${ULTRAHUMAN_CLIENT_SECRET:-}
+  ULTRAHUMAN_REDIRECT_URI: ${ULTRAHUMAN_REDIRECT_URI:-}
+  ULTRAHUMAN_DEFAULT_SCOPE: ${ULTRAHUMAN_DEFAULT_SCOPE:-}
+
 services:
   db:
     image: postgres:18
@@ -5,12 +82,13 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-open-wearables}
       POSTGRES_USER: ${DB_USER:-open-wearables}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-open-wearables}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-open-wearables} -d ${DB_NAME:-open-wearables}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -23,11 +101,8 @@ services:
     image: open-wearables-platform:latest
     pull_policy: never
     command: scripts/start/app.sh
-    env_file:
-      - ./backend/config/.env
     environment:
-      - DB_HOST=db
-      - REDIS_HOST=redis
+      <<: *backend-env
     ports:
       - "8000:8000"
     depends_on:
@@ -48,11 +123,8 @@ services:
     image: open-wearables-platform:latest
     pull_policy: never
     command: scripts/start/worker.sh
-    env_file:
-      - ./backend/config/.env
     environment:
-      - DB_HOST=db
-      - REDIS_HOST=redis
+      <<: *backend-env
     depends_on:
       - redis
       - db
@@ -64,11 +136,8 @@ services:
     image: open-wearables-platform:latest
     pull_policy: never
     command: scripts/start/beat.sh
-    env_file:
-      - ./backend/config/.env
     environment:
-      - DB_HOST=db
-      - REDIS_HOST=redis
+      <<: *backend-env
     depends_on:
       - redis
       - db
@@ -80,11 +149,8 @@ services:
     image: open-wearables-platform:latest
     pull_policy: never
     command: scripts/start/flower.sh
-    env_file:
-      - ./backend/config/.env
     environment:
-      - DB_HOST=db
-      - REDIS_HOST=redis
+      <<: *backend-env
     ports:
       - 5555:5555
     depends_on:
