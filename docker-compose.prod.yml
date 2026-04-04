@@ -3,18 +3,16 @@ services:
     image: postgres:18
     container_name: postgres__open-wearables
     environment:
-      POSTGRES_DB: open-wearables
-      POSTGRES_USER: open-wearables
-      POSTGRES_PASSWORD: open-wearables
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${DB_NAME:-open-wearables}
+      POSTGRES_USER: ${DB_USER:-open-wearables}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U open-wearables -d open-wearables"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-open-wearables} -d ${DB_NAME:-open-wearables}"]
       interval: 5s
       timeout: 5s
       retries: 5
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
   app:
@@ -37,6 +35,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   celery-worker:
@@ -92,8 +96,6 @@ services:
   redis:
     container_name: redis__open-wearables
     image: redis:8
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/var/lib/redis/data
     restart: unless-stopped
