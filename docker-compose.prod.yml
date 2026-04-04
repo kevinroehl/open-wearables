@@ -78,7 +78,6 @@ x-backend-env: &backend-env
 services:
   db:
     image: postgres:18
-    container_name: postgres__open-wearables
     environment:
       POSTGRES_DB: ${DB_NAME:-open-wearables}
       POSTGRES_USER: ${DB_USER:-open-wearables}
@@ -90,14 +89,13 @@ services:
       retries: 15
       start_period: 60s
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
 
   app:
     build:
         context: ./backend
         dockerfile: Dockerfile
-    container_name: backend__open-wearables
     image: open-wearables-platform:latest
     pull_policy: never
     command: scripts/start/app.sh
@@ -119,7 +117,6 @@ services:
     restart: unless-stopped
 
   celery-worker:
-    container_name: celery-worker__open-wearables
     image: open-wearables-platform:latest
     pull_policy: never
     command: scripts/start/worker.sh
@@ -132,7 +129,6 @@ services:
     restart: unless-stopped
 
   celery-beat:
-    container_name: celery-beat__open-wearables
     image: open-wearables-platform:latest
     pull_policy: never
     command: scripts/start/beat.sh
@@ -145,7 +141,6 @@ services:
     restart: unless-stopped
 
   flower:
-    container_name: flower__open-wearables
     image: open-wearables-platform:latest
     pull_policy: never
     command: scripts/start/flower.sh
@@ -160,7 +155,6 @@ services:
     restart: unless-stopped
 
   redis:
-    container_name: redis__open-wearables
     image: redis:8
     volumes:
       - redis_data:/var/lib/redis/data
@@ -172,7 +166,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:?Set VITE_API_URL in your environment}
-    container_name: frontend__open-wearables
     image: open-wearables-frontend:latest
     pull_policy: never
     ports:
