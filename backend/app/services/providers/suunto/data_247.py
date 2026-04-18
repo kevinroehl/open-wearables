@@ -7,7 +7,7 @@ Syncs data from three Suunto Cloud API endpoints:
 - /247/daily-activity-statistics → DataPointSeries (aggregated daily steps/energy)
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -349,31 +349,35 @@ class Suunto247Data(Base247DataTemplate):
         if not recorded_at:
             return 0
 
-        count = 0
+        samples_to_create: list[TimeSeriesSampleCreate] = []
         for field_name, series_type in _RECOVERY_METRICS:
             value = normalized_recovery.get(field_name)
             if value is None:
                 continue
             try:
-                sample = TimeSeriesSampleCreate(
-                    id=uuid4(),
-                    user_id=user_id,
-                    source=self.provider_name,
-                    recorded_at=recorded_at,
-                    value=Decimal(str(value)),
-                    series_type=series_type,
+                samples_to_create.append(
+                    TimeSeriesSampleCreate(
+                        id=uuid4(),
+                        user_id=user_id,
+                        source=self.provider_name,
+                        recorded_at=recorded_at,
+                        value=Decimal(str(value)),
+                        series_type=series_type,
+                    )
                 )
-                timeseries_service.crud.create(db, sample)
-                count += 1
             except Exception as e:
                 log_structured(
                     self.logger,
                     "warning",
-                    f"Failed to save recovery {field_name}: {e}",
+                    f"Failed to build recovery sample {field_name}: {e}",
                     provider="suunto",
                     task="save_recovery_data",
                 )
-        return count
+
+        if samples_to_create:
+            timeseries_service.bulk_create_samples(db, samples_to_create)
+
+        return len(samples_to_create)
 
     def load_and_save_recovery(
         self,
@@ -663,9 +667,16 @@ class Suunto247Data(Base247DataTemplate):
         is_first_sync: bool = False,
     ) -> dict[str, int]:
         """Load all 247 data types and save to database."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         end_dt = parse_datetime_or_default(end_time, now)
         start_dt = parse_datetime_or_default(start_time, end_dt - timedelta(days=28))
+
+        # Ensure both bounds are timezone-aware so chunk comparisons don't raise
+        # TypeError when mixed naive/aware datetimes end up in _fetch_in_chunks.
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
 
         results: dict[str, int] = {
             "sleep_sessions_synced": 0,
@@ -725,5 +736,11 @@ class Suunto247Data(Base247DataTemplate):
                 provider="suunto",
                 task="load_and_save_all",
             )
+
+        # Commit all pending bulk inserts (activity samples, daily stats) that were
+        # not committed within their individual save methods. Sleep and recovery
+        # commit per-record via crud.create/try_commit, but bulk_create_samples
+        # defers commit to the caller intentionally for batching efficiency.
+        db.commit()
 
         return results

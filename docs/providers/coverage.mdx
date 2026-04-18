@@ -1,6 +1,15 @@
 ---
-title: 'Coverage Matrix'
-description: 'Which health data types are supported by each wearable provider'
+title: "Wearable API Coverage Matrix"
+sidebarTitle: "Coverage Matrix"
+description: "Data types by provider: Apple, Garmin, Polar, Suunto, Oura, Whoop, Ultrahuman, Strava, and Fitbit. OAuth, workouts, sleep, and timeseries support."
+keywords: ["wearable api coverage", "health data types by provider", "wearable data types", "provider data support"]
+"og:title": "Wearable API Coverage Matrix | Open Wearables"
+"og:description": "Health data types by provider: Apple, Garmin, Polar, Suunto, Oura, Whoop, Ultrahuman, Strava, Fitbit."
+"og:url": "https://docs.openwearables.io/providers/coverage"
+"og:type": "article"
+"twitter:title": "Wearable API Coverage Matrix | Open Wearables"
+"twitter:description": "Health data types by provider: Apple, Garmin, Polar, Suunto, Oura, Whoop, Ultrahuman, Strava, Fitbit."
+"twitter:card": "summary_large_image"
 ---
 
 This guide provides a comprehensive overview of data type support across all integrated wearable providers. Use this matrix to understand what data you can expect when integrating with specific devices.
@@ -14,6 +23,7 @@ This guide provides a comprehensive overview of data type support across all int
 | **Sleep** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **24/7 Data** | ✅ | ✅ | ❌ | ✅ | ✅ | ◐ | ✅ | ❌ |
 | **Timeseries** | ✅ | ✅ | ◐ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| **Health Scores** | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
 
 <Accordion title="Legend">
   - ✅ **Full support** — Fully implemented and collecting data
@@ -223,6 +233,31 @@ All providers that support workouts provide these common fields:
 <Note>
   Workout types are normalized to a unified taxonomy. See [Data Types](/architecture/data-types#workout-types) for the full list of supported workout types.
 </Note>
+
+---
+
+## Health Scores Coverage
+
+Health scores are composite metrics that summarize a specific aspect of health into a single number. Open Wearables persists scores natively reported by providers and additionally calculates its own provider-independent scores from raw data.
+
+| Score | Internal | Apple | Garmin | Polar | Suunto | Oura | Whoop | Ultrahuman | Strava |
+|-------|:--------:|:-----:|:------:|:-----:|:------:|:----:|:-----:|:----------:|:------:|
+| Sleep score | 🔜 | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| Readiness score | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Activity score | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Recovery score | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Resilience score | 🔜 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Stress score | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Body battery | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Strain score | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+
+<Note>
+  **Internal scores** are calculated by Open Wearables from raw data, independent of any provider. They are available for any provider that reports the required underlying data.
+</Note>
+
+<Info>
+  🔜 = Coming soon. For provider columns: score is exposed in the provider API but ingestion is not yet implemented. For the Internal column: Open Wearables-calculated score is planned but not yet implemented.
+</Info>
 
 ---
 
