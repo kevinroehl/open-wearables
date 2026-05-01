@@ -285,6 +285,4 @@ def _map_workout_step(step: TrainingWorkoutStep, next_order: Any) -> dict[str, A
 def _duration_value_type(duration_type: TrainingDurationType) -> str | None:
     if duration_type == TrainingDurationType.DISTANCE:
         return "METER"
-    if duration_type == TrainingDurationType.TIME:
-        return "SECOND"
     return None
