@@ -136,8 +136,8 @@ class TrainingWorkoutBase(BaseModel):
     description: str | None = Field(None, max_length=1024)
     sport: TrainingSport
     steps: list[TrainingStep] = Field(min_length=1)
-    workout_provider: str = Field("OpenWearables", min_length=1, max_length=20)
-    workout_source_id: str = Field("OpenWearables", min_length=1, max_length=20)
+    workout_provider: str = Field("Meala", min_length=1, max_length=20)
+    workout_source_id: str = Field("Meala", min_length=1, max_length=20)
 
     @model_validator(mode="after")
     def validate_workout(self) -> "TrainingWorkoutBase":
@@ -171,8 +171,8 @@ class TrainingWorkoutCreateInternal(BaseModel):
     description: str | None = None
     sport: str
     steps_json: dict
-    workout_provider: str = "OpenWearables"
-    workout_source_id: str = "OpenWearables"
+    workout_provider: str = "Meala"
+    workout_source_id: str = "Meala"
     publish_status: TrainingPublishStatus = TrainingPublishStatus.DRAFT
     garmin_workout_id: str | None = None
     garmin_owner_id: str | None = None

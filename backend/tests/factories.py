@@ -319,8 +319,8 @@ class TrainingWorkoutFactory(BaseFactory):
             }
         ]
     }
-    workout_provider = "OpenWearables"
-    workout_source_id = "OpenWearables"
+    workout_provider = "Meala"
+    workout_source_id = "Meala"
     garmin_workout_id = None
     garmin_owner_id = None
     publish_status = TrainingPublishStatus.DRAFT.value

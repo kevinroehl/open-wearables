@@ -50,8 +50,8 @@ def _workout() -> TrainingWorkout:
                 },
             ]
         },
-        workout_provider="OpenWearables",
-        workout_source_id="OpenWearables",
+        workout_provider="Meala",
+        workout_source_id="Meala",
         garmin_workout_id="123",
         garmin_owner_id="456",
         publish_status="draft",
