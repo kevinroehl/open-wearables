@@ -1,0 +1,113 @@
+---
+title: "Training Workouts"
+description: "Create and schedule Garmin structured running and cycling workouts."
+---
+
+## Overview
+
+Use the Training API endpoints to create structured running or cycling workouts for a user and publish them to Garmin Connect. The user must have an active Garmin connection with the `WORKOUT_IMPORT` permission.
+
+V1 supports single-sport `RUNNING` and `CYCLING` workouts with normal steps and repeat blocks. Strength, swim, multisport workouts, and named multi-week plan templates are not yet supported.
+
+## Create a Workout
+
+```bash
+curl -X POST "https://api.openwearables.io/api/v1/users/550e8400-e29b-41d4-a716-446655440000/training/workouts" \
+  -H "X-Open-Wearables-API-Key: sk_live_1234567890abcdef" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workout_name": "Tempo Intervals",
+    "description": "Warm up, then 4 controlled tempo repeats.",
+    "sport": "RUNNING",
+    "steps": [
+      {
+        "type": "step",
+        "intensity": "WARMUP",
+        "duration_type": "TIME",
+        "duration_value": 600,
+        "target_type": "OPEN"
+      },
+      {
+        "type": "repeat",
+        "repeat_value": 4,
+        "steps": [
+          {
+            "type": "step",
+            "intensity": "INTERVAL",
+            "duration_type": "DISTANCE",
+            "duration_value": 1000,
+            "target_type": "PACE",
+            "target_value_low": 3.8,
+            "target_value_high": 4.2
+          },
+          {
+            "type": "step",
+            "intensity": "RECOVERY",
+            "duration_type": "TIME",
+            "duration_value": 120,
+            "target_type": "OPEN"
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+Expected response:
+
+```json
+{
+  "workout": {
+    "id": "7d9a3d65-b14d-4f95-9a52-6b3c63d88f27",
+    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+    "provider": "garmin",
+    "workout_name": "Tempo Intervals",
+    "sport": "RUNNING",
+    "publish_status": "queued",
+    "garmin_workout_id": null
+  },
+  "job": {
+    "id": "d6d999fd-9810-408c-9d78-3a8206e4e08f",
+    "entity_type": "workout",
+    "action": "create",
+    "status": "queued"
+  }
+}
+```
+
+## Schedule a Workout
+
+After creating a local workout, schedule it on the user's Garmin Connect calendar:
+
+```bash
+curl -X POST "https://api.openwearables.io/api/v1/users/550e8400-e29b-41d4-a716-446655440000/training/schedules" \
+  -H "X-Open-Wearables-API-Key: sk_live_1234567890abcdef" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workout_id": "7d9a3d65-b14d-4f95-9a52-6b3c63d88f27",
+    "scheduled_date": "2026-05-10"
+  }'
+```
+
+If the workout has not been published to Garmin yet, Open Wearables queues the workout publish first and then queues the schedule publish.
+
+## Check Publish Status
+
+```bash
+curl "https://api.openwearables.io/api/v1/users/550e8400-e29b-41d4-a716-446655440000/training/jobs/d6d999fd-9810-408c-9d78-3a8206e4e08f" \
+  -H "X-Open-Wearables-API-Key: sk_live_1234567890abcdef"
+```
+
+Common statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `queued` | The publish job is waiting to run. |
+| `running` | Open Wearables is sending the item to Garmin. |
+| `succeeded` | Garmin accepted the workout or schedule. |
+| `retrying` | Garmin was rate limited or unavailable; the job will retry. |
+| `failed` | The job cannot continue without user or payload changes. |
+
+## Error Handling
+
+Garmin publish jobs fail permanently when Garmin returns invalid payload, expired authorization, forbidden access, or missing `WORKOUT_IMPORT` permission errors. Rate limits and temporary Garmin outages are retried with bounded backoff.

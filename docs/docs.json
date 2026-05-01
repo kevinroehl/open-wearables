@@ -151,6 +151,7 @@
             "group": "Integration Guides",
             "pages": [
               "api-reference/guides/quick-integration",
+              "api-reference/guides/training",
               "api-reference/guides/webhooks",
               "api-reference/guides/apple-xml-import",
               "api-reference/guides/provider-setup",
@@ -219,6 +220,20 @@
             "pages": [
               "GET /api/v1/users/{user_id}/events/workouts",
               "GET /api/v1/users/{user_id}/events/sleep"
+            ]
+          },
+          {
+            "group": "Training",
+            "pages": [
+              "POST /api/v1/users/{user_id}/training/workouts",
+              "GET /api/v1/users/{user_id}/training/workouts/{workout_id}",
+              "PUT /api/v1/users/{user_id}/training/workouts/{workout_id}",
+              "DELETE /api/v1/users/{user_id}/training/workouts/{workout_id}",
+              "POST /api/v1/users/{user_id}/training/workouts/{workout_id}/publish",
+              "POST /api/v1/users/{user_id}/training/schedules",
+              "GET /api/v1/users/{user_id}/training/schedules",
+              "DELETE /api/v1/users/{user_id}/training/schedules/{schedule_id}",
+              "GET /api/v1/users/{user_id}/training/jobs/{job_id}"
             ]
           },
           {

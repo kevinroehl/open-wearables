@@ -95,6 +95,7 @@ def create_celery() -> Celery:
         task_routes={
             "app.integrations.celery.tasks.process_sdk_upload_task.process_sdk_upload": {"queue": "sdk_sync"},
             "app.integrations.celery.tasks.garmin_webhook_task.process_push": {"queue": "garmin_sync"},
+            "app.integrations.celery.tasks.garmin_training_task.publish_garmin_training_item": {"queue": "garmin_sync"},
         },
     )
 

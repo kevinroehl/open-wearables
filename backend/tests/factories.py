@@ -30,12 +30,16 @@ from app.models import (
     ProviderSetting,
     SeriesTypeDefinition,
     SleepDetails,
+    TrainingPublishJob,
+    TrainingSchedule,
+    TrainingWorkout,
     User,
     UserConnection,
     WorkoutDetails,
 )
 from app.schemas.auth import ConnectionStatus
 from app.schemas.enums import HealthScoreCategory, ProviderName
+from app.schemas.training import TrainingJobAction, TrainingJobEntityType, TrainingJobStatus, TrainingPublishStatus
 from app.utils.security import get_password_hash
 
 
@@ -290,6 +294,79 @@ class ApiKeyFactory(BaseFactory):
             developer = DeveloperFactory()
         kwargs["created_by"] = developer.id
         return super()._create(model_class, *args, **kwargs)
+
+
+class TrainingWorkoutFactory(BaseFactory):
+    """Factory for training workouts."""
+
+    class Meta:
+        model = TrainingWorkout
+
+    id = LazyFunction(uuid4)
+    user = factory.SubFactory(UserFactory)
+    provider = ProviderName.GARMIN.value
+    workout_name = Sequence(lambda n: f"Training Workout {n}")
+    description = "Test structured workout"
+    sport = "RUNNING"
+    steps_json = {
+        "steps": [
+            {
+                "type": "step",
+                "intensity": "ACTIVE",
+                "duration_type": "TIME",
+                "duration_value": 600,
+                "target_type": "OPEN",
+            }
+        ]
+    }
+    workout_provider = "OpenWearables"
+    workout_source_id = "OpenWearables"
+    garmin_workout_id = None
+    garmin_owner_id = None
+    publish_status = TrainingPublishStatus.DRAFT.value
+    last_error = None
+    created_at = LazyFunction(lambda: datetime.now(timezone.utc))
+    updated_at = LazyFunction(lambda: datetime.now(timezone.utc))
+
+
+class TrainingScheduleFactory(BaseFactory):
+    """Factory for training schedules."""
+
+    class Meta:
+        model = TrainingSchedule
+
+    id = LazyFunction(uuid4)
+    user = factory.SelfAttribute("workout.user")
+    provider = ProviderName.GARMIN.value
+    workout = factory.SubFactory(TrainingWorkoutFactory)
+    scheduled_date = LazyFunction(lambda: datetime.now(timezone.utc).date())
+    garmin_schedule_id = None
+    publish_status = TrainingPublishStatus.DRAFT.value
+    last_error = None
+    created_at = LazyFunction(lambda: datetime.now(timezone.utc))
+    updated_at = LazyFunction(lambda: datetime.now(timezone.utc))
+
+
+class TrainingPublishJobFactory(BaseFactory):
+    """Factory for training publish jobs."""
+
+    class Meta:
+        model = TrainingPublishJob
+
+    id = LazyFunction(uuid4)
+    user = factory.SubFactory(UserFactory)
+    provider = ProviderName.GARMIN.value
+    entity_type = TrainingJobEntityType.WORKOUT.value
+    entity_id = LazyFunction(uuid4)
+    action = TrainingJobAction.CREATE.value
+    status = TrainingJobStatus.QUEUED.value
+    attempts = 0
+    garmin_status_code = None
+    garmin_response_json = None
+    error_code = None
+    error_message = None
+    created_at = LazyFunction(lambda: datetime.now(timezone.utc))
+    updated_at = LazyFunction(lambda: datetime.now(timezone.utc))
 
 
 class ApplicationFactory(BaseFactory):
@@ -590,6 +667,9 @@ __all__ = [
     "DeveloperFactory",
     "ApiKeyFactory",
     "ApplicationFactory",
+    "TrainingPublishJobFactory",
+    "TrainingScheduleFactory",
+    "TrainingWorkoutFactory",
     "DataSourceFactory",
     "DataSourceFactory",  # Backward-compatible alias for DataSourceFactory
     "UserConnectionFactory",
