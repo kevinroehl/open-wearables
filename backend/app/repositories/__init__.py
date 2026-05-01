@@ -10,6 +10,7 @@ from .invitation_repository import InvitationRepository
 from .provider_priority_repository import ProviderPriorityRepository
 from .refresh_token_repository import RefreshTokenRepository, refresh_token_repository
 from .repositories import CrudRepository
+from .training_repository import TrainingPublishJobRepository, TrainingScheduleRepository, TrainingWorkoutRepository
 from .user_connection_repository import UserConnectionRepository
 from .user_repository import UserRepository
 
@@ -30,4 +31,7 @@ __all__ = [
     "InvitationRepository",
     "CrudRepository",
     "HealthScoreRepository",
+    "TrainingPublishJobRepository",
+    "TrainingScheduleRepository",
+    "TrainingWorkoutRepository",
 ]

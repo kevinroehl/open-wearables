@@ -15,6 +15,7 @@ from .services import AppService
 from .summaries_service import summaries_service
 from .system_info_service import system_info_service
 from .timeseries_service import timeseries_service
+from .training_service import training_service
 from .user_connection_service import user_connection_service
 from .user_invitation_code_service import user_invitation_code_service
 from .user_service import user_service
@@ -38,6 +39,7 @@ __all__ = [
     "event_record_service",
     "summaries_service",
     "timeseries_service",
+    "training_service",
     "system_info_service",
     "PriorityService",
     "presigned_url_service",

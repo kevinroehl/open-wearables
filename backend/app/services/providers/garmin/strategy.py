@@ -4,6 +4,7 @@ from app.integrations.celery.tasks.garmin_backfill_task import start_full_backfi
 from app.services.providers.base_strategy import BaseProviderStrategy, HistoricalSyncResult, ProviderCapabilities
 from app.services.providers.garmin.data_247 import Garmin247Data
 from app.services.providers.garmin.oauth import GarminOAuth
+from app.services.providers.garmin.training import GarminTrainingClient
 from app.services.providers.garmin.webhook_handler import GarminWebhookHandler
 from app.services.providers.garmin.workouts import GarminWorkouts
 
@@ -42,6 +43,12 @@ class GarminStrategy(BaseProviderStrategy):
             garmin_workouts=self.workouts,
             garmin_247=self.data_247,
         )
+        self.training = GarminTrainingClient(
+            provider_name=self.name,
+            api_base_url=self.api_base_url,
+            oauth=self.oauth,
+            connection_repo=self.connection_repo,
+        )
 
     @property
     def name(self) -> str:
@@ -57,7 +64,13 @@ class GarminStrategy(BaseProviderStrategy):
         # also supports an async backfill flow (PING → callback URL fetch).
         # There is no plain REST polling path for wellness data; all data
         # arrives via the push/backfill mechanism.
-        return ProviderCapabilities(supports_push=True, supports_async_export=True, max_historical_days=30)
+        return ProviderCapabilities(
+            supports_push=True,
+            supports_async_export=True,
+            max_historical_days=30,
+            supports_training_workouts=True,
+            supports_training_schedules=True,
+        )
 
     def start_historical_sync(self, user_id: UUID, days: int) -> HistoricalSyncResult:
         """Trigger Garmin's webhook-based 30-day backfill.

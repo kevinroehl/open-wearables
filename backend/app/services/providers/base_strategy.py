@@ -72,6 +72,8 @@ class ProviderCapabilities:
     webhook_notify_only: bool = False
     max_historical_days: int | None = None
     """Hard limit on how many days of history the provider allows. None = no known limit."""
+    supports_training_workouts: bool = False
+    supports_training_schedules: bool = False
 
 
 class BaseProviderStrategy(ABC):
@@ -88,6 +90,7 @@ class BaseProviderStrategy(ABC):
         self.workouts: BaseWorkoutsTemplate | None = None
         self.data_247: Base247DataTemplate | None = None
         self.webhooks: BaseWebhookHandler | None = None
+        self.training = None
 
     @property
     @abstractmethod

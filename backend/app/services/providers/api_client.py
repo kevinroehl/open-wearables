@@ -158,7 +158,13 @@ def make_authenticated_request(
             if not expect_json:
                 return {
                     "status_code": response.status_code,
-                    "accepted": response.status_code == 202,
+                    "accepted": response.status_code in {200, 202, 204},
+                }
+
+            if response.status_code == 204 or not response.content:
+                return {
+                    "status_code": response.status_code,
+                    "accepted": response.status_code in {200, 202, 204},
                 }
 
             result = response.json()

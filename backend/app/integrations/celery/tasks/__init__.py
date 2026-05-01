@@ -35,6 +35,7 @@ from .garmin_backfill_trigger import (
     trigger_backfill_for_type as trigger_garmin_backfill_for_type,
 )
 from .garmin_gc_task import gc_stuck_backfills
+from .garmin_training_task import publish_garmin_training_item
 from .garmin_webhook_task import process_push as process_garmin_push
 from .periodic_sync_task import sync_all_users
 from .process_aws_upload_task import process_aws_upload
@@ -73,6 +74,7 @@ __all__ = [
     "generate_seed_data",
     "send_invitation_email_task",
     "process_garmin_push",
+    "publish_garmin_training_item",
     # Outgoing webhooks
     "emit_webhook_event",
 ]
