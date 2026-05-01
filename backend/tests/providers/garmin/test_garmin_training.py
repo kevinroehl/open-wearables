@@ -70,10 +70,11 @@ def test_build_garmin_workout_payload_maps_steps_and_ids() -> None:
     assert payload["isSessionTransitionEnabled"] is False
     steps = payload["segments"][0]["steps"]
     assert steps[0]["type"] == "WorkoutStep"
-    assert steps[0]["durationValueType"] == "SECOND"
+    assert steps[0]["durationValueType"] is None
     assert steps[1]["type"] == "WorkoutRepeatStep"
     assert steps[1]["repeatValue"] == 3
     assert steps[1]["steps"][0]["stepOrder"] == 3
+    assert steps[1]["steps"][0]["durationValueType"] == "METER"
     assert steps[1]["steps"][0]["targetType"] == "POWER"
     assert steps[1]["steps"][0]["targetValue"] == 4
 
