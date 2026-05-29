@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from logging import Logger, getLogger
 from uuid import UUID, uuid4
@@ -11,6 +11,7 @@ from app.models import (
     DataSource,
     EventRecord,
     EventRecordDetail,
+    HealthScore,
     SleepDetails,
     WorkoutDetails,
 )
@@ -19,14 +20,17 @@ from app.repositories import (
     DataSourceRepository,
     EventRecordDetailRepository,
     EventRecordRepository,
+    HealthScoreRepository,
 )
-from app.schemas.enums import WORKOUTS_WITH_PACE
+from app.schemas.enums import WORKOUTS_WITH_PACE, HealthScoreCategory, ProviderName
 from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
     EventRecordQueryParams,
     EventRecordResponse,
     EventRecordUpdate,
+    HealthScoreCreate,
+    ScoreComponent,
 )
 from app.schemas.model_crud.activities.sleep import SleepStage
 from app.schemas.responses.activity import SleepSession, SleepStagesSummary, Workout, WorkoutDetailed
@@ -40,6 +44,7 @@ from app.schemas.utils import (
 )
 from app.services.outgoing_webhooks import svix as svix_service
 from app.services.outgoing_webhooks.events import on_sleep_created, on_workout_created
+from app.services.scores.sleep_service import sleep_score_service
 from app.services.services import AppService
 from app.utils.exceptions import handle_exceptions
 from app.utils.pagination import encode_cursor
@@ -55,6 +60,7 @@ class EventRecordService(
         self.event_record_detail_repo = EventRecordDetailRepository(EventRecordDetail)
         self.data_source_repo = DataSourceRepository()
         self.data_point_series_repo = DataPointSeriesRepository(DataPointSeries)
+        self.health_score_repo = HealthScoreRepository(HealthScore)
 
     def _resolve_avg_hr(
         self,
@@ -109,7 +115,7 @@ class EventRecordService(
         detail: EventRecordDetailCreate,
         detail_type: str = "workout",
     ) -> EventRecordDetail:
-        result = self.event_record_detail_repo.create(db_session, detail, detail_type=detail_type)  # type: ignore[return-value]
+        result = self.event_record_detail_repo.create(db_session, detail, detail_type=detail_type)
         record = db_session.get(EventRecord, detail.record_id)
         if record is not None and record.data_source_id is not None:
             data_source = db_session.get(DataSource, record.data_source_id)
@@ -120,7 +126,55 @@ class EventRecordService(
                 def _dispatch_webhook(session: DbSession) -> None:  # noqa: ARG001
                     self._emit_event_record_webhook(_record, _data_source, _detail)
 
-        return result  # type: ignore[return-value]
+        return result  # ty:ignore[invalid-return-type]
+
+    @staticmethod
+    def _local_sleep_date(start_datetime: datetime, zone_offset: str | None) -> date:
+        """Return the local calendar date of a sleep session start (mirrors SQL logic in fill task)."""
+        dt = start_datetime if start_datetime.tzinfo is not None else start_datetime.replace(tzinfo=timezone.utc)
+        if zone_offset is not None:
+            sign = 1 if zone_offset[0] == "+" else -1
+            hours, minutes = int(zone_offset[1:3]), int(zone_offset[4:6])
+            dt = dt.astimezone(timezone(timedelta(hours=sign * hours, minutes=sign * minutes)))
+        return dt.date()
+
+    def _recompute_sleep_scores(
+        self,
+        db_session: DbSession,
+        user_id: UUID,
+        sleep_dates: set[date],
+    ) -> None:
+        """Delete existing internal sleep scores for each date and recompute them immediately.
+
+        Accepts multiple dates so callers can cover both the old and new local
+        date when a session shifts across midnight.  The session data has already
+        been flushed, so sleep_score_service sees up-to-date rows within the
+        same transaction.
+        """
+        for d in sleep_dates:
+            self.health_score_repo.delete_for_user_date(db_session, user_id, d, HealthScoreCategory.SLEEP)
+        scores = sleep_score_service.get_sleep_scores_for_date_range(db_session, user_id, list(sleep_dates))
+        if not scores:
+            return
+        creators = [
+            HealthScoreCreate(
+                id=uuid4(),
+                user_id=user_id,
+                data_source_id=None,
+                provider=ProviderName.INTERNAL,
+                category=HealthScoreCategory.SLEEP,
+                value=result.overall_score,
+                recorded_at=datetime(d.year, d.month, d.day, tzinfo=timezone.utc),
+                components={
+                    "duration": ScoreComponent(value=result.breakdown.duration.score),
+                    "stages": ScoreComponent(value=result.breakdown.stages.score),
+                    "consistency": ScoreComponent(value=result.breakdown.consistency.score),
+                    "interruptions": ScoreComponent(value=result.breakdown.interruptions.score),
+                },
+            )
+            for d, result in scores.items()
+        ]
+        self.health_score_repo.bulk_create(db_session, creators)
 
     def find_adjacent_sleep_record(
         self,
@@ -213,6 +267,7 @@ class EventRecordService(
             # retry, score update).  Replace the detail with fresh values instead
             # of accumulating them on top of the existing ones.
             if record.external_id is not None and adjacent.external_id == record.external_id:
+                old_start, old_zone = adjacent.start_datetime, adjacent.zone_offset
                 for field in ("start_datetime", "end_datetime", "zone_offset"):
                     new_val = getattr(record, field, None)
                     if new_val is not None:
@@ -224,6 +279,14 @@ class EventRecordService(
                     db_session,
                     detail.model_copy(update={"record_id": adjacent.id}),
                     detail_type="sleep",
+                )
+                self._recompute_sleep_scores(
+                    db_session,
+                    user_id,
+                    {
+                        self._local_sleep_date(old_start, old_zone),
+                        self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset),
+                    },
                 )
                 db_session.commit()
                 return adjacent, False, detail
@@ -348,6 +411,11 @@ class EventRecordService(
                     detail.model_copy(update={"record_id": adjacent.id, **merged_detail_fields}),
                     detail_type="sleep",
                 )
+                self._recompute_sleep_scores(
+                    db_session,
+                    user_id,
+                    {self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset)},
+                )
                 db_session.commit()
                 return adjacent, False, detail
 
@@ -370,6 +438,11 @@ class EventRecordService(
                     detail.model_copy(update={"record_id": adjacent.id, **merged_detail_fields}),
                     detail_type="sleep",
                 )
+                self._recompute_sleep_scores(
+                    db_session,
+                    user_id,
+                    {self._local_sleep_date(adjacent.start_datetime, adjacent.zone_offset)},
+                )
                 db_session.commit()
                 return adjacent, False, detail
 
@@ -379,7 +452,16 @@ class EventRecordService(
                 merged_final_detail,
                 detail_type="sleep",
             )
+            adj_start, adj_zone = adjacent.start_datetime, adjacent.zone_offset
             self.crud.delete_flush(db_session, adjacent)
+            self._recompute_sleep_scores(
+                db_session,
+                user_id,
+                {
+                    self._local_sleep_date(adj_start, adj_zone),
+                    self._local_sleep_date(created_record.start_datetime, created_record.zone_offset),
+                },
+            )
             db_session.commit()
             return created_record, True, merged_final_detail
 
@@ -477,7 +559,7 @@ class EventRecordService(
         detail_type: str = "workout",
     ) -> None:
         """Bulk create event record details and fire one webhook per detail on commit."""
-        self.event_record_detail_repo.bulk_create(db_session, details, detail_type=detail_type)  # type: ignore[arg-type]
+        self.event_record_detail_repo.bulk_create(db_session, details, detail_type=detail_type)  # ty:ignore[invalid-argument-type]
 
         if not details or not svix_service.is_enabled():
             return
@@ -660,8 +742,8 @@ class EventRecordService(
             # Seconds per kilometer - speed is in meters per second
             if details.average_speed and details.average_speed > 0:
                 avg_pace_sec_per_km = 1000 / details.average_speed
-            elif details.distance > 0:
-                avg_pace_sec_per_km = record.duration_seconds / details.distance * 1000
+            elif details.distance > 0:  # ty:ignore[unsupported-operator]
+                avg_pace_sec_per_km = record.duration_seconds / details.distance * 1000  # ty:ignore[unsupported-operator]
         else:
             avg_pace_sec_per_km = None
 
@@ -678,7 +760,7 @@ class EventRecordService(
             distance_meters=float(details.distance) if details and details.distance else None,
             avg_heart_rate_bpm=self._resolve_avg_hr(db_session, [record]).get(record.id),
             max_heart_rate_bpm=details.heart_rate_max if details else None,
-            avg_pace_sec_per_km=avg_pace_sec_per_km,
+            avg_pace_sec_per_km=avg_pace_sec_per_km,  # ty:ignore[invalid-argument-type]
             elevation_gain_meters=float(details.total_elevation_gain)
             if details and details.total_elevation_gain
             else None,
@@ -735,6 +817,11 @@ class EventRecordService(
         for record, data_source in records:
             details: SleepDetails | None = record.detail if isinstance(record.detail, SleepDetails) else None
 
+            sleep_duration_seconds = (
+                details.sleep_total_duration_minutes * 60
+                if details and details.sleep_total_duration_minutes is not None
+                else None
+            )
             session = SleepSession(
                 id=record.id,
                 start_time=record.start_datetime,
@@ -742,11 +829,12 @@ class EventRecordService(
                 zone_offset=record.zone_offset,
                 source=self._map_source(data_source),
                 duration_seconds=record.duration_seconds or 0,
+                sleep_duration_seconds=sleep_duration_seconds,
                 efficiency_percent=float(details.sleep_efficiency_score)
                 if details and details.sleep_efficiency_score
                 else None,
                 is_nap=details.is_nap if (details and details.is_nap is not None) else False,
-                sleep_stage_intervals=details.sleep_stages if details else None,
+                sleep_stage_intervals=details.sleep_stages if details else None,  # ty:ignore[invalid-argument-type]
                 stages=SleepStagesSummary(
                     deep_minutes=details.sleep_deep_minutes or 0 if details else 0,
                     light_minutes=details.sleep_light_minutes or 0 if details else 0,
@@ -772,6 +860,23 @@ class EventRecordService(
                 end_time=params.end_datetime,
             ),
         )
+
+    def delete_event_record(
+        self,
+        db_session: DbSession,
+        user_id: UUID,
+        record_id: UUID,
+        category: str,
+    ) -> bool:
+        """Delete an event record by id and category. Returns False if not found or not owned by user."""
+        record = self.crud.get_record_with_details(db_session, record_id, category)
+        if not record:
+            return False
+        data_source = self.data_source_repo.get(db_session, record.data_source_id)
+        if not data_source or data_source.user_id != user_id:
+            return False
+        self.crud.delete(db_session, record)
+        return True
 
 
 event_record_service = EventRecordService(log=getLogger(__name__))

@@ -19,6 +19,7 @@ export interface UserRead {
   external_user_id: string | null;
   last_synced_at: string | null;
   last_synced_provider: string | null;
+  has_active_connection: boolean;
 }
 
 export interface UserCreate {
@@ -179,10 +180,22 @@ export interface DataPointsInfo {
   top_workout_types: WorkoutTypeMetric[];
 }
 
+export interface ProviderConnectionCount {
+  provider: string;
+  count: number;
+}
+
+export interface ConnectionsCoverage {
+  users_with_active: number;
+  users_with_multi_active: number;
+  top_providers: ProviderConnectionCount[];
+}
+
 export interface DashboardStats {
   total_users: CountWithGrowth;
   active_conn: CountWithGrowth;
   data_points: DataPointsInfo;
+  connections_coverage: ConnectionsCoverage;
 }
 
 export interface ProviderDataCount {
@@ -209,6 +222,8 @@ export interface Provider {
   has_cloud_api: boolean;
   is_enabled: boolean;
   icon_url: string;
+  live_sync_mode: 'pull' | 'webhook' | null;
+  live_sync_configurable: boolean;
 }
 
 export type WearableProvider =
@@ -232,7 +247,11 @@ export interface UserConnection {
   created_at: string;
   updated_at: string;
   max_historical_days?: number | null;
-  supports_pull?: boolean;
+  rest_pull?: boolean;
+  webhook_stream?: boolean;
+  webhook_ping?: boolean;
+  webhook_callback?: boolean;
+  live_sync_mode?: 'pull' | 'webhook' | null;
 }
 
 // ============================================================================
@@ -253,12 +272,18 @@ export interface SleepStage {
   duration_seconds?: number;
 }
 
+export interface SourceMetadata {
+  provider: string;
+  device: string | null;
+}
+
 export interface SleepSession {
   id: string;
   start_time: string;
   end_time: string;
   source: SourceMetadata;
   duration_seconds: number;
+  sleep_duration_seconds: number | null;
   efficiency_percent: number | null;
   stages: SleepStagesSummary | null;
   sleep_stage_intervals: SleepStage[] | null;
@@ -321,6 +346,7 @@ export interface BodyAveraged {
   period_days: number;
   resting_heart_rate_bpm: number | null;
   avg_hrv_sdnn_ms: number | null;
+  avg_hrv_rmssd_ms: number | null;
   period_start: string;
   period_end: string;
 }
@@ -415,6 +441,10 @@ export interface ApiKey {
 
 export interface ApiKeyCreate {
   name: string;
+}
+
+export interface ApiKeyUpdate {
+  name?: string | null;
 }
 
 export interface Automation {
