@@ -86,7 +86,7 @@ services:
   redis:
     image: redis:8
     volumes:
-      - redis_data:/var/lib/redis/data
+      - redis_data:/data
     restart: unless-stopped
 
   frontend:
