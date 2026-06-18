@@ -597,6 +597,38 @@ class TestGarmin247Data:
         assert record.type == "running"
         assert detail.distance == Decimal("5000")
 
+    @pytest.mark.parametrize(
+        ("garmin_type", "expected_type"),
+        [
+            ("GRAVEL_CYCLING", "cycling"),
+            ("INDOOR_ROWING", "rowing_machine"),
+            ("LAP_SWIMMING", "pool_swimming"),
+            ("HIIT", "cardio_training"),
+        ],
+    )
+    def test_build_activity_record_uses_unified_workout_types(
+        self,
+        garmin_247: Garmin247Data,
+        garmin_type: str,
+        expected_type: str,
+    ) -> None:
+        """Garmin activityDetails should match the normalized workout endpoint types."""
+        user_id = uuid4()
+        activity = {
+            "activityId": f"activity-{garmin_type}",
+            "startTimeInSeconds": 1705309200,
+            "durationInSeconds": 3600,
+            "activityType": garmin_type,
+            "deviceId": "fallback-device",
+        }
+
+        result = garmin_247._build_activity_record(user_id, activity)
+
+        assert result is not None
+        record, _ = result
+        assert record.type == expected_type
+        assert record.device_model == "fallback-device"
+
     def test_build_activity_record_missing_id(self, garmin_247: Garmin247Data) -> None:
         """Test _build_activity_record returns None for missing activityId."""
         user_id = uuid4()

@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from app.config import settings
 from app.constants.sleep import SleepStageType
+from app.constants.workout_types.garmin import get_unified_workout_type
 from app.database import DbSession
 from app.models import DataPointSeries, EventRecord, EventRecordDetail
 from app.repositories import (
@@ -946,15 +947,15 @@ class Garmin247Data(Base247DataTemplate):
         end_dt = self._from_epoch_seconds(start_ts + duration) if duration else start_dt
         zone_offset = offset_to_iso(raw_activity.get("startTimeOffsetInSeconds"))
 
-        activity_type = raw_activity.get("activityType", "unknown")
+        activity_type = get_unified_workout_type(raw_activity.get("activityType", "unknown")).value
 
         record_id = uuid4()
         record = EventRecordCreate(
             id=record_id,
             category="workout",
-            type=activity_type.lower(),
+            type=activity_type,
             source_name="Garmin",
-            device_model=raw_activity.get("deviceName"),
+            device_model=raw_activity.get("deviceName") or raw_activity.get("deviceId"),
             duration_seconds=duration,
             start_datetime=start_dt,
             end_datetime=end_dt,
