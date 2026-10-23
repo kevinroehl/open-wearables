@@ -76,7 +76,8 @@ services:
       - DB_HOST=db
       - REDIS_HOST=redis
     ports:
-      - "5556:5555"
+      # Access Flower locally or through an SSH tunnel.
+      - "127.0.0.1:5556:5555"
     depends_on:
       - redis
       - db
