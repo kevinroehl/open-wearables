@@ -34,6 +34,8 @@ jobs:
           DB_PASSWORD: validation-only
           VITE_API_URL: http://localhost:8000
         run: |
+          mkdir -p backend/config
+          touch .env backend/config/.env
           for file in docker-compose.yml docker-compose.prod.yml docker-compose.prod2.yml; do
             docker compose --env-file /dev/null -f "$file" config --no-env-resolution --quiet
           done
