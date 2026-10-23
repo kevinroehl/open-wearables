@@ -1,0 +1,9 @@
+# Dependency maintenance
+
+Dependabot checks Python, JavaScript, Dockerfiles, Compose images, and GitHub Actions monthly. Minor/patch version updates are grouped, major updates remain separate, and routine releases have a seven-day cooldown. Up to three routine PRs per ecosystem entry may remain open. Security updates use GitHub alerts independently of the monthly schedule and cooldown; they require the repository's vulnerability alerts and automated security fixes settings to remain enabled.
+
+The Dependency and image checks workflow runs for dependency/configuration PRs, on the first day of each month, and on manual request. It validates Compose files, builds application images with fresh base images, and fails on HIGH/CRITICAL vulnerabilities for which Trivy knows a fix. Existing CI supplies application lint/tests/build checks. A failed check needs review; it never deploys a fix.
+
+Images are built only on disposable GitHub standard Ubuntu runners and are neither pushed nor deployed. No production credentials or self-hosted production runners are used. New image checks do not upload artifacts or persist caches. Dependabot checks themselves are free; standard Actions are free for public repositories. Private-repository checks use included minutes and must retain the organization's zero-dollar Actions budget with `prevent_further_usage=true`: if the quota is exhausted, checks can be blocked rather than incur paid usage. Do not raise that budget to unblock maintenance.
+
+No workflow in this maintenance setup merges or deploys PRs. Coolify automatic and preview deployments are disabled separately for the production application. After reviewing a PR and its checks, merge deliberately and start the deployment manually. Major database upgrades need a migration/backup plan. Scheduled builds can detect fresh base-image vulnerabilities even when a mutable image tag has not changed; they do not replace running containers.
