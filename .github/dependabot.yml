@@ -1,49 +1,106 @@
+# Routine updates are monthly. Security updates use GitHub alerts independently.
 version: 2
 updates:
-  # --- Python (uv) ---
   - package-ecosystem: "uv"
     directories:
       - "/backend"
       - "/mcp"
     schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore"
+      interval: "monthly"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
     cooldown:
       default-days: 7
-      semver-major-days: 30
-      semver-minor-days: 7
-      semver-patch-days: 3
+    commit-message:
+      prefix: "chore"
     groups:
-      python-minor-patch:
+      minor-and-patch:
+        applies-to: "version-updates"
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      python-major:
+      security-fixes:
+        applies-to: "security-updates"
         patterns: ["*"]
-        update-types: ["major"]
-    labels:
-      - "dependencies"
-    open-pull-requests-limit: 10
 
-  # --- npm ---
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore"
+      interval: "monthly"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
     cooldown:
       default-days: 7
-      semver-major-days: 30
-      semver-minor-days: 7
-      semver-patch-days: 3
+    commit-message:
+      prefix: "chore"
     groups:
-      npm-minor-patch:
+      minor-and-patch:
+        applies-to: "version-updates"
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      npm-major:
+      security-fixes:
+        applies-to: "security-updates"
         patterns: ["*"]
-        update-types: ["major"]
-    labels:
-      - "dependencies"
-    open-pull-requests-limit: 10
+
+  - package-ecosystem: "docker"
+    directories:
+      - "/backend"
+      - "/frontend"
+    schedule:
+      interval: "monthly"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+    groups:
+      minor-and-patch:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: "security-updates"
+        patterns: ["*"]
+
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+    groups:
+      minor-and-patch:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: "security-updates"
+        patterns: ["*"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+    groups:
+      minor-and-patch:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: "security-updates"
+        patterns: ["*"]

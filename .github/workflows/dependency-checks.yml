@@ -1,0 +1,84 @@
+name: Dependency and image checks
+
+on:
+  pull_request:
+    paths:
+      - "**/Dockerfile*"
+      - "**/*compose*.yml"
+      - "**/*compose*.yaml"
+      - "**/pyproject.toml"
+      - "**/uv.lock"
+      - "**/package.json"
+      - "**/*lock*.yaml"
+      - "**/package-lock.json"
+      - ".github/**"
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Validate Compose configurations without production credentials
+        env:
+          DB_PASSWORD: validation-only
+          VITE_API_URL: http://localhost:8000
+        run: |
+          mkdir -p backend/config
+          touch .env backend/config/.env
+          for file in docker-compose.yml docker-compose.prod.yml docker-compose.prod2.yml; do
+            docker compose --env-file /dev/null -f "$file" config --no-env-resolution --quiet
+          done
+
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - name: backend
+            context: backend
+            dockerfile: backend/Dockerfile
+            service_path: ""
+          - name: frontend
+            context: frontend
+            dockerfile: frontend/Dockerfile
+            service_path: ""
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Build with a fresh base image; do not publish
+        env:
+          IMAGE_NAME: ${{ matrix.name }}
+          BUILD_CONTEXT: ${{ matrix.context }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          SERVICE_PATH: ${{ matrix.service_path }}
+        run: |
+          args=()
+          if [ -n "$SERVICE_PATH" ]; then
+            args+=(--build-arg "SERVICE_PATH=$SERVICE_PATH")
+          fi
+          docker build --pull "${args[@]}" --file "$DOCKERFILE" \
+            --tag "maintenance-check:$IMAGE_NAME" "$BUILD_CONTEXT"
+      - name: Check for fixable high and critical image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: "v0.76.1"
+          image-ref: "maintenance-check:${{ matrix.name }}"
+          format: "table"
+          scanners: "vuln"
+          severity: "HIGH,CRITICAL"
+          ignore-unfixed: true
+          exit-code: "1"
+          cache: false

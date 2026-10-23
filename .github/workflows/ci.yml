@@ -15,6 +15,7 @@ jobs:
   # Detect which parts of the codebase changed
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       pull-requests: read
     outputs:
@@ -37,6 +38,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -55,6 +57,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -82,6 +85,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18
@@ -127,6 +131,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.mcp == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -145,6 +150,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.mcp == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -172,6 +178,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Setup pnpm
@@ -199,6 +206,7 @@ jobs:
     needs: [changes, frontend-setup]
     if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Setup pnpm
@@ -223,6 +231,7 @@ jobs:
     needs: [changes, frontend-setup]
     if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Setup pnpm
@@ -247,6 +256,7 @@ jobs:
     needs: [changes, frontend-setup]
     if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Setup pnpm
