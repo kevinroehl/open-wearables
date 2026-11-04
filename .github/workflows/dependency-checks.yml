@@ -33,10 +33,13 @@ jobs:
         env:
           DB_PASSWORD: validation-only
           VITE_API_URL: http://localhost:8000
+          SERVICE_PASSWORD_64_OWDB: validation-only
+          SERVICE_PASSWORD_64_OWSIGNING: validation-only
+          SERVICE_PASSWORD_64_OWADMIN: validation-only
         run: |
           mkdir -p backend/config
           touch .env backend/config/.env
-          for file in docker-compose.yml docker-compose.prod.yml docker-compose.prod2.yml; do
+          for file in docker-compose.yml docker-compose.prod.yml docker-compose.prod2.yml docker-compose.staging.yml; do
             docker compose --env-file /dev/null -f "$file" config --no-env-resolution --quiet
           done
 

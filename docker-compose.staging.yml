@@ -1,0 +1,93 @@
+# Git-based Coolify resource on the upgrade branch. Use synthetic data only.
+x-backend: &backend
+  image: meala-ow-staging-platform:0.11-fork
+  pull_policy: never
+  restart: unless-stopped
+  environment:
+    ENVIRONMENT: staging
+    DB_HOST: db
+    DB_NAME: ow_stage
+    DB_USER: ow_stage
+    DB_PASSWORD: ${SERVICE_PASSWORD_64_OWDB}
+    REDIS_HOST: redis
+    SECRET_KEY: ${SERVICE_PASSWORD_64_OWSIGNING}
+    ADMIN_EMAIL: ow-staging@example.com
+    ADMIN_PASSWORD: ${SERVICE_PASSWORD_64_OWADMIN}
+    API_BASE_URL: http://127.0.0.1:58101
+    FRONTEND_URL: http://127.0.0.1:58301
+    CORS_ORIGINS: '["http://127.0.0.1:58301"]'
+    OUTGOING_WEBHOOKS_ENABLED: "false"
+    TELEMETRY_ENABLED: "false"
+  depends_on:
+    app:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: ow_stage
+      POSTGRES_USER: ow_stage
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_64_OWDB}
+    volumes:
+      - staging_postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ow_stage -d ow_stage"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:8
+    volumes:
+      - staging_redis:/data
+    restart: unless-stopped
+
+  app:
+    <<: *backend
+    build: ./backend
+    command: scripts/start/app.sh
+    ports: ["127.0.0.1:58101:8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/', timeout=4).read()"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10m
+      retries: 6
+
+  celery-worker:
+    <<: *backend
+    command: scripts/start/worker.sh
+    stop_grace_period: 2m
+
+  celery-beat:
+    <<: *backend
+    command: scripts/start/beat.sh
+
+  flower:
+    <<: *backend
+    command: scripts/start/flower.sh
+    ports: ["127.0.0.1:58556:5555"]
+
+  frontend:
+    image: meala-ow-staging-portal:0.11-fork
+    pull_policy: never
+    build: ./frontend
+    environment:
+      VITE_API_URL: http://127.0.0.1:58101
+      API_URL: http://app:8000
+    ports: ["127.0.0.1:58301:3000"]
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  staging_postgres:
+  staging_redis:

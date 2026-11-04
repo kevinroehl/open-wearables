@@ -6,7 +6,9 @@ upstream image does not contain the fork's training routes or merge revision.
 
 ## Separate staging resource
 
-Create a fresh Git application for this branch. Use empty, resource-scoped
+The Git staging resource uses `/docker-compose.staging.yml` and the pinned upgrade branch. Its image names, loopback ports and volume keys are separate. Coolify generates its three SERVICE_PASSWORD_64 variables on parsing. Access the portal and API through SSH forwarding (localhost ports 58301 and 58101).
+
+For a staging deployment using the production manifest instead, create a fresh Git application for this branch. Use empty, resource-scoped
 PostgreSQL and Redis volumes and synthetic accounts. Never attach a production
 database clone to an internet-connected worker or Beat: scheduled jobs can
 contact providers with stored credentials. Rehearse a restored database on a
