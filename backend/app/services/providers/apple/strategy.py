@@ -1,13 +1,13 @@
-from app.services.providers.apple.workouts import AppleWorkouts
-from app.services.providers.base_strategy import BaseProviderStrategy, ProviderCapabilities
+from app.services.providers.apple.coverage import HEALTH_SCORES, MEAL_FIELDS, SLEEP_FIELDS, TIMESERIES, WORKOUT_FIELDS
+from app.services.providers.base_strategy import BaseProviderStrategy, ProviderCapabilities, ProviderCoverage
 
 
 class AppleStrategy(BaseProviderStrategy):
-    """Apple Health provider implementation."""
+    """Apple Health provider implementation.
 
-    def __init__(self):
-        super().__init__()
-        self.workouts = AppleWorkouts(self.workout_repo, self.connection_repo)
+    Metadata only: ingestion runs through the shared SDK pipeline
+    (``app/services/sdk/``) and the XML import under ``apple_xml/``.
+    """
 
     @property
     def name(self) -> str:
@@ -26,3 +26,13 @@ class AppleStrategy(BaseProviderStrategy):
         # Apple Health data arrives exclusively via XML export or HealthKit SDK.
         # No cloud OAuth, no REST polling, no server-side webhooks.
         return ProviderCapabilities(client_sdk=True, file_import=True)
+
+    @property
+    def coverage(self) -> ProviderCoverage:
+        return ProviderCoverage(
+            timeseries=TIMESERIES,
+            workout_fields=WORKOUT_FIELDS,
+            sleep_fields=SLEEP_FIELDS,
+            meal_fields=MEAL_FIELDS,
+            health_scores=HEALTH_SCORES,
+        )

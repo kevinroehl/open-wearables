@@ -4,8 +4,10 @@ from decimal import Decimal
 from typing import Any, Iterable
 from uuid import UUID, uuid4
 
+from app.constants.entry_source import get_unified_garmin_entry_source
 from app.constants.workout_types.garmin import get_unified_workout_type
 from app.database import DbSession
+from app.schemas.enums import EventCategory
 from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
@@ -13,6 +15,7 @@ from app.schemas.model_crud.activities import (
 )
 from app.schemas.providers.garmin import ActivityJSON as GarminActivityJSON
 from app.services.event_record_service import event_record_service
+from app.services.providers.garmin.coverage import WORKOUT_ENERGY_SERIES
 from app.services.providers.templates.base_workouts import BaseWorkoutsTemplate
 from app.utils.dates import offset_to_iso
 from app.utils.structured_logging import log_structured
@@ -184,16 +187,26 @@ class GarminWorkouts(BaseWorkoutsTemplate):
 
         average_cadence = Decimal(str(raw_workout.averageCadence)) if raw_workout.averageCadence is not None else None
 
-        return {
+        metrics: EventRecordMetrics = {
             # Garmin activity payloads carry only average and max heart rate
             "heart_rate_min": None,
             "heart_rate_max": int(heart_rate_max) if heart_rate_max is not None else None,
             "heart_rate_avg": heart_rate_avg,
             "steps_count": steps_count,
             "energy_burned": energy_burned,
+            "energy_series": WORKOUT_ENERGY_SERIES,
             "distance": distance,
             "average_cadence": average_cadence,
         }
+
+        entry_source = get_unified_garmin_entry_source(raw_workout.manual, raw_workout.isWebUpload)
+        if entry_source is not None:
+            metrics["entry_source"] = entry_source
+
+        if raw_workout.activityName:
+            metrics["label"] = raw_workout.activityName
+
+        return metrics
 
     def _normalize_workout(
         self,
@@ -218,7 +231,7 @@ class GarminWorkouts(BaseWorkoutsTemplate):
         zone_offset = offset_to_iso(raw_workout.startTimeOffsetInSeconds)
 
         record = EventRecordCreate(
-            category="workout",
+            category=EventCategory.WORKOUT,
             type=workout_type.value,
             source_name=device_name,
             device_model=raw_workout.deviceName,

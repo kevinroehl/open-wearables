@@ -1,0 +1,63 @@
+---
+title: "Data Lifecycle"
+sidebarTitle: "Data Lifecycle"
+description: "Configure the rollup and deletion of time-series samples, review storage usage, and run the lifecycle job on demand from Settings → Data Lifecycle in the Open Wearables developer portal."
+keywords: ["data retention", "time series rollup", "storage growth", "delete old data", "postgres storage"]
+"og:title": "Data Lifecycle | Open Wearables"
+"og:description": "Configure the rollup and deletion of time-series samples, review storage usage, and run the lifecycle job on demand from Settings → Data Lifecycle in the Open Wearables developer portal."
+"og:url": "https://docs.openwearables.io/developer-portal/settings/data-lifecycle"
+"og:type": "article"
+"twitter:title": "Data Lifecycle | Open Wearables"
+"twitter:description": "Configure the rollup and deletion of time-series samples, review storage usage, and run the lifecycle job on demand from Settings → Data Lifecycle in the Open Wearables developer portal."
+"twitter:card": "summary_large_image"
+---
+
+**Settings → Data Lifecycle** keeps the size of per-sample time-series data under control. Raw samples such as heart rate at one-second resolution grow linearly with time and connected devices. Every changed day is rolled up into one row a day per series, and one per sleep or workout; this tab lets you delete the samples past a retention window while those rows stay.
+
+<Warning>
+This feature is in early access and is not yet ready for production use.
+</Warning>
+
+<Note>
+Self-hosting: set `DATA_LIFECYCLE_ENABLED=false` in the backend `.env` to turn retention off. The tab disappears from Settings, the `/api/v1/settings/archival` endpoints return `503`, and the nightly deletion job stops running. The 15-minute rollup keeps running, because summaries and day reads are served from its rows. Existing data is left untouched.
+</Note>
+
+## Storage Overview
+
+The top of the page shows the current database footprint:
+
+- **Samples** - size and row count of the time-series table, including indexes.
+- **Aggregates** - size and row count of the day and session rows, including the legacy archive until it is dropped.
+- **Other Tables** - everything else.
+- **Total Database** - the sum.
+
+## Growth Projection
+
+A chart estimates database size over the next 18 months based on the current ingestion rate and the policies you have configured. The badge above it classifies the outcome:
+
+| Badge | Meaning |
+|---|---|
+| **Linear** | Deletion is off. Every sample is kept forever. |
+| **Bounded** | Deletion is on and rollup is off. Samples past the window are deleted, so the sample table stops growing; the provider's day and session rows and the other tables still grow, far more slowly. |
+| **Linear (efficient)** | Deletion is on with rollup on. Samples are capped at the window; the rolled-up rows they leave behind keep accumulating, at roughly 1/500 of the raw rate. |
+
+The projection updates as you edit the policies, before you save.
+
+## Rollup
+
+Every 15 minutes, the days whose samples changed are rolled up into one row a day per series and one row per sleep or workout, for the sources that do not send such values themselves. Summaries, day, week and month reads of `/timeseries`, and the sleep and workout statistics a provider did not send are served from these rows, so rollup is on by default.
+
+Turning it off drops what is queued at the next run, and every day that changes after it. Turned back on, rollup covers only the days that change from then on; the days in between keep the rows they had. Keep it on unless every connected provider sends its own day and session values.
+
+## Deletion
+
+When enabled, samples of local days older than **Delete samples older than N days** are permanently deleted, whole days at a time, at 03:00 UTC. Set the window between 1 and 7300 days; the number can be typed before the switch is turned on.
+
+- With rollup on, a day is rolled up right before its samples go, so its day and session rows stay. Those rows are never recomputed again: a sample that arrives late for a deleted day only fills a row the day lacks.
+- With rollup off, the samples go and none of our day or session rows stands in for them; the day and session values a provider sent itself stay.
+
+Deletion is irreversible.
+
+## Manual Trigger
+
+**Run Now** rolls up the days still queued and, with deletion on, deletes the samples past the window, with the currently saved policies. It runs in the background in batches, and the space it frees is reused by new rows rather than handed back, so the sizes above may not drop at once.

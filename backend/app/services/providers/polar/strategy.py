@@ -1,4 +1,5 @@
-from app.services.providers.base_strategy import BaseProviderStrategy, ProviderCapabilities
+from app.services.providers.base_strategy import BaseProviderStrategy, ProviderCapabilities, ProviderCoverage
+from app.services.providers.polar.coverage import HEALTH_SCORES, SLEEP_FIELDS, TIMESERIES, WORKOUT_FIELDS
 from app.services.providers.polar.data_247 import Polar247Data
 from app.services.providers.polar.oauth import PolarOAuth
 from app.services.providers.polar.webhook_handler import PolarWebhookHandler
@@ -43,5 +44,15 @@ class PolarStrategy(BaseProviderStrategy):
     @property
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
-            rest_pull=True, webhook_ping=True, webhook_registration_api=True, webhook_inbound_secret=True
+            rest_pull=True,
+            webhook_ping=True,
+            webhook_registration_api=True,
+            webhook_inbound_secret=True,
+            max_historical_days=365,
+        )
+
+    @property
+    def coverage(self) -> ProviderCoverage:
+        return ProviderCoverage(
+            timeseries=TIMESERIES, workout_fields=WORKOUT_FIELDS, sleep_fields=SLEEP_FIELDS, health_scores=HEALTH_SCORES
         )

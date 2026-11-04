@@ -42,7 +42,7 @@ class TestTrainingEndpoints:
         with patch("app.integrations.celery.tasks.garmin_training_task.publish_garmin_training_item.delay") as delay:
             response = client.post(
                 f"/api/v1/users/{user.id}/training/workouts",
-                headers=api_key_headers(api_key.id),
+                headers=api_key_headers(api_key.plain_key),
                 json=_payload(),
             )
 
@@ -59,7 +59,7 @@ class TestTrainingEndpoints:
 
         response = client.post(
             f"/api/v1/users/{user.id}/training/workouts",
-            headers=api_key_headers(api_key.id),
+            headers=api_key_headers(api_key.plain_key),
             json=_payload(),
         )
 
@@ -72,7 +72,7 @@ class TestTrainingEndpoints:
 
         response = client.get(
             f"/api/v1/users/{workout.user_id}/training/workouts/{workout.id}",
-            headers=api_key_headers(api_key.id),
+            headers=api_key_headers(api_key.plain_key),
         )
 
         assert response.status_code == 200
@@ -87,7 +87,7 @@ class TestTrainingEndpoints:
         with patch("app.integrations.celery.tasks.garmin_training_task.publish_garmin_training_item.delay") as delay:
             response = client.post(
                 f"/api/v1/users/{user.id}/training/schedules",
-                headers=api_key_headers(api_key.id),
+                headers=api_key_headers(api_key.plain_key),
                 json={"workout_id": str(workout.id), "scheduled_date": date.today().isoformat()},
             )
 
@@ -105,7 +105,7 @@ class TestTrainingEndpoints:
 
         response = client.get(
             f"/api/v1/users/{workout.user_id}/training/schedules",
-            headers=api_key_headers(api_key.id),
+            headers=api_key_headers(api_key.plain_key),
             params={"start_date": "2026-05-01", "end_date": "2026-05-31"},
         )
 
@@ -123,7 +123,7 @@ class TestTrainingEndpoints:
         with patch("app.integrations.celery.tasks.garmin_training_task.publish_garmin_training_item.delay") as delay:
             response = client.post(
                 f"/api/v1/users/{user.id}/training/workouts/{workout.id}/publish",
-                headers=api_key_headers(api_key.id),
+                headers=api_key_headers(api_key.plain_key),
             )
 
         assert response.status_code == 200
@@ -140,7 +140,7 @@ class TestTrainingEndpoints:
         with patch("app.integrations.celery.tasks.garmin_training_task.publish_garmin_training_item.delay") as delay:
             response = client.delete(
                 f"/api/v1/users/{user.id}/training/schedules/{schedule.id}",
-                headers=api_key_headers(api_key.id),
+                headers=api_key_headers(api_key.plain_key),
             )
 
         assert response.status_code == 200
@@ -155,7 +155,7 @@ class TestTrainingEndpoints:
 
         response = client.post(
             f"/api/v1/users/{user.id}/training/schedules",
-            headers=api_key_headers(api_key.id),
+            headers=api_key_headers(api_key.plain_key),
             json={"workout_id": str(workout.id), "scheduled_date": "not-a-date"},
         )
 
@@ -173,7 +173,7 @@ class TestTrainingEndpoints:
 
         response = client.post(
             f"/api/v1/users/{user.id}/training/workouts",
-            headers=api_key_headers(api_key.id),
+            headers=api_key_headers(api_key.plain_key),
             json=_payload(),
         )
 
@@ -185,7 +185,7 @@ class TestTrainingEndpoints:
 
         response = client.get(
             f"/api/v1/users/{user.id}/training/jobs/{uuid4()}",
-            headers=api_key_headers(api_key.id),
+            headers=api_key_headers(api_key.plain_key),
         )
 
         assert response.status_code == 404

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from app.constants.workout_types.fitbit import get_unified_workout_type
 from app.database import DbSession
+from app.schemas.enums import EventCategory
 from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
@@ -55,7 +56,9 @@ class FitbitWorkouts(BaseWorkoutsTemplate):
             "heart_rate_avg": Decimal(str(hr_avg)) if hr_avg is not None else None,
             "steps_count": int(steps) if steps is not None else None,
             "energy_burned": Decimal(str(calories)) if calories is not None else None,
-            "distance": Decimal(str(distance)) if distance is not None else None,
+            # Fitbit reports distance in kilometers (no Accept-Language header is sent,
+            # so responses are always metric); the platform stores meters.
+            "distance": Decimal(str(distance)) * 1000 if distance is not None else None,
         }
 
     def _normalize_workout(
@@ -81,7 +84,7 @@ class FitbitWorkouts(BaseWorkoutsTemplate):
 
         record = EventRecordCreate(
             id=workout_id,
-            category="workout",
+            category=EventCategory.WORKOUT,
             type=workout_type.value,
             source_name=source_name,
             device_model=source_name,

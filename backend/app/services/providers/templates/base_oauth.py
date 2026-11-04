@@ -6,18 +6,19 @@ from abc import ABC, abstractmethod
 from base64 import b64encode, urlsafe_b64encode
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 import httpx
 from fastapi import HTTPException
 from redis import Redis
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_500_INTERNAL_SERVER_ERROR
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_500_INTERNAL_SERVER_ERROR
 
 from app.database import DbSession
 from app.integrations.redis_client import get_redis_client
 from app.repositories.user_connection_repository import UserConnectionRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.auth import AuthenticationMethod
+from app.schemas.auth import AuthenticationMethod, ConnectionStatus
 from app.schemas.model_crud.credentials import (
     OAuthState,
     OAuthTokenResponse,
@@ -25,7 +26,8 @@ from app.schemas.model_crud.credentials import (
     ProviderEndpoints,
 )
 from app.schemas.model_crud.user_management import UserConnectionCreate
-from app.services.outgoing_webhooks.events import on_connection_created
+from app.services.outgoing_webhooks.events import on_connection_created, on_connection_revoked
+from app.utils.exceptions import ReauthRequiredError
 from app.utils.structured_logging import log_structured
 
 logger = logging.getLogger(__name__)
@@ -133,8 +135,14 @@ class BaseOAuthTemplate(ABC):
 
         return oauth_state
 
-    def refresh_access_token(self, db: DbSession, user_id: UUID, refresh_token: str) -> OAuthTokenResponse:
-        """Refreshes the access token using the refresh token."""
+    def refresh_access_token(
+        self, db: DbSession, user_id: UUID, refresh_token: str, *, revoke_on_failure: bool = True
+    ) -> OAuthTokenResponse:
+        """Refreshes the access token using the refresh token.
+
+        Pass ``revoke_on_failure=False`` when the caller revokes the connection itself with a
+        more specific reason than ``refresh_failed``.
+        """
         data, headers = self._prepare_refresh_request(refresh_token)
 
         try:
@@ -178,17 +186,50 @@ class BaseOAuthTemplate(ABC):
                 user_id=str(user_id),
                 status_code=e.response.status_code,
             )
+            # 400/401 = refresh token is dead so revoke + notify
+            if e.response.status_code in (HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED):
+                if revoke_on_failure:
+                    self.revoke_connection(db, user_id, reason="refresh_failed")
+                raise ReauthRequiredError(
+                    self.provider_name,
+                    user_id,
+                    f"Refresh token rejected for {self.provider_name}; reconnection required",
+                )
             raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=f"Failed to refresh token: {e.response.text}")
         except Exception as e:
             log_structured(
                 logger,
-                "error",
+                "warning",
                 f"OAuth token refresh failed: {e}",
                 provider=self.provider_name,
                 task="refresh_access_token",
                 user_id=str(user_id),
             )
             raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Token refresh failed: {str(e)}")
+
+    def revoke_connection(self, db: DbSession, user_id: UUID, *, reason: str) -> None:
+        """Mark the connection revoked and emit a connection.revoked webhook."""
+        connection = self.connection_repo.get_by_user_and_provider(db, user_id, self.provider_name)
+        if not connection or connection.status == ConnectionStatus.REVOKED:
+            return
+        self.connection_repo.mark_as_revoked(db, connection)
+        log_structured(
+            logger,
+            "info",
+            "Connection revoked",
+            action="connection_revoked",
+            reason=reason,
+            provider=self.provider_name,
+            user_id=str(user_id),
+            connection_id=str(connection.id),
+        )
+        on_connection_revoked(
+            user_id=user_id,
+            provider=self.provider_name,
+            connection_id=connection.id,
+            reason=reason,
+            revoked_at=connection.updated_at.isoformat(),
+        )
 
     def _build_auth_url(self, state: str) -> tuple[str, dict[str, Any] | None]:
         """Builds the authorization URL.
@@ -214,8 +255,6 @@ class BaseOAuthTemplate(ABC):
         )
 
         if self.credentials.default_scope:
-            from urllib.parse import quote
-
             encoded_scope = quote(self.credentials.default_scope)
             auth_url += f"&scope={encoded_scope}"
 
@@ -333,7 +372,7 @@ class BaseOAuthTemplate(ABC):
             "Content-Type": "application/x-www-form-urlencoded",
         }
 
-    def deregister_user(self, access_token: str) -> None:
+    def deregister_user(self, access_token: str, provider_user_id: str | None = None) -> None:
         """Notify provider that user is disconnecting. Override in subclasses that support deregistration."""
         log_structured(
             logger,
@@ -370,6 +409,7 @@ class BaseOAuthTemplate(ABC):
         )
 
         if existing_connection:
+            was_inactive = existing_connection.status != ConnectionStatus.ACTIVE
             # Update tokens, user info, and scope
             self.connection_repo.update_connection_info(
                 db,
@@ -381,6 +421,13 @@ class BaseOAuthTemplate(ABC):
                 provider_username=provider_username,
                 scope=scope,
             )
+            if was_inactive:
+                on_connection_created(
+                    user_id=user_id,
+                    provider=self.provider_name,
+                    connection_id=existing_connection.id,
+                    connected_at=datetime.now(timezone.utc).isoformat(),
+                )
         else:
             connection_create = UserConnectionCreate(
                 user_id=user_id,

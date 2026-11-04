@@ -42,6 +42,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
+from app.constants.celery_tasks import CeleryQueue, CeleryTask
 from app.database import DbSession
 from app.repositories import UserConnectionRepository
 from app.schemas.providers.strava import ActivityJSON as StravaActivityJSON
@@ -55,11 +56,11 @@ from app.utils.structured_logging import log_structured
 
 logger = logging.getLogger(__name__)
 
-_PROCESS_PUSH_TASK = "app.integrations.celery.tasks.webhook_push_task.process_webhook_push"
-
 
 class StravaWebhookHandler(BaseWebhookHandler):
     """Webhook handler for Strava notify-only events."""
+
+    user_id_field = "owner_id"
 
     def __init__(self, workouts: StravaWorkouts) -> None:
         super().__init__("strava")
@@ -126,7 +127,9 @@ class StravaWebhookHandler(BaseWebhookHandler):
 
         store_raw_payload(source="webhook", provider="strava", payload=raw, trace_id=trace_id)
 
-        task = celery_app.send_task(_PROCESS_PUSH_TASK, args=["strava", raw, trace_id], queue="webhook_sync")
+        task = celery_app.send_task(
+            CeleryTask.PROCESS_WEBHOOK_PUSH, args=["strava", raw, trace_id], queue=CeleryQueue.WEBHOOK_SYNC
+        )
         log_structured(
             logger,
             "info",
@@ -230,7 +233,6 @@ class StravaWebhookHandler(BaseWebhookHandler):
                     "provider": "strava",
                     "trace_id": trace_id,
                     "action": "webhook_invalid_payload",
-                    "error": str(exc),
                 },
             )
             return {"status": "error", "error": f"Invalid payload: {exc}"}
@@ -269,13 +271,26 @@ class StravaWebhookHandler(BaseWebhookHandler):
 
         user_id: UUID = connection.user_id
 
-        self.connection_repo.update_last_synced_at(db, connection)
+        result = self._handle_activity_event(db, aspect_type, user_id, object_id, owner_id, trace_id)
+        if aspect_type in ("create", "update") and result.get("status") != "error":
+            self.connection_repo.update_last_synced_at(db, connection)
+        return result
 
+    def _handle_activity_event(
+        self,
+        db: DbSession,
+        aspect_type: str,
+        user_id: UUID,
+        object_id: int,
+        owner_id: int,
+        trace_id: str,
+    ) -> dict[str, Any]:
+        """Apply an activity create/update/delete for a resolved user."""
         if aspect_type == "delete":
             return self._handle_activity_delete(db, user_id, object_id, trace_id)
 
         if aspect_type not in ("create", "update"):
-            return {"status": "ignored", "reason": f"aspect_type:{aspect_type}"}
+            return {"status": "ignored", "reason": f"aspect_type:{aspect_type}", "user_id": str(user_id)}
 
         log_structured(
             logger,
@@ -302,7 +317,12 @@ class StravaWebhookHandler(BaseWebhookHandler):
                     activity_id=object_id,
                     user_id=str(user_id),
                 )
-                return {"status": "warning", "reason": "no_activity_data", "activity_id": object_id}
+                return {
+                    "status": "warning",
+                    "reason": "no_activity_data",
+                    "activity_id": object_id,
+                    "user_id": str(user_id),
+                }
 
             activity = StravaActivityJSON(**activity_data)
             created_ids = self.workouts.process_push_activity(db=db, activity=activity, user_id=user_id)
@@ -322,6 +342,7 @@ class StravaWebhookHandler(BaseWebhookHandler):
                 "status": "processed",
                 "activity_id": object_id,
                 "records_saved": len(created_ids),
+                "user_id": str(user_id),
             }
 
         except IntegrityError:
@@ -336,7 +357,12 @@ class StravaWebhookHandler(BaseWebhookHandler):
                 activity_id=object_id,
                 user_id=str(user_id),
             )
-            return {"status": "ignored", "reason": "duplicate_activity", "activity_id": object_id}
+            return {
+                "status": "ignored",
+                "reason": "duplicate_activity",
+                "activity_id": object_id,
+                "user_id": str(user_id),
+            }
 
         except ValidationError as exc:
             log_and_capture_error(
@@ -352,7 +378,7 @@ class StravaWebhookHandler(BaseWebhookHandler):
                     "error": str(exc),
                 },
             )
-            return {"status": "error", "error": f"validation_error: {exc}"}
+            return {"status": "error", "error": f"validation_error: {exc}", "user_id": str(user_id)}
 
         except Exception as exc:
             log_and_capture_error(

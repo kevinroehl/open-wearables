@@ -1,7 +1,21 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from app.integrations.celery.tasks.garmin.backfill_task import start_full_backfill as start_garmin_full_backfill
-from app.services.providers.base_strategy import BaseProviderStrategy, HistoricalSyncResult, ProviderCapabilities
+from app.services.providers.base_strategy import (
+    BaseProviderStrategy,
+    HistoricalSyncResult,
+    ProviderCapabilities,
+    ProviderCoverage,
+)
+from app.services.providers.garmin.backfill_config import MAX_BACKFILL_DAYS
+from app.services.providers.garmin.coverage import (
+    HEALTH_SCORES,
+    MENSTRUAL_CYCLE_FIELDS,
+    SLEEP_FIELDS,
+    TIMESERIES,
+    WORKOUT_FIELDS,
+)
 from app.services.providers.garmin.data_247 import Garmin247Data
 from app.services.providers.garmin.oauth import GarminOAuth
 from app.services.providers.garmin.training import GarminTrainingClient
@@ -42,6 +56,7 @@ class GarminStrategy(BaseProviderStrategy):
         self.webhooks = GarminWebhookHandler(
             garmin_workouts=self.workouts,
             garmin_247=self.data_247,
+            oauth=self.oauth,
         )
         self.training = GarminTrainingClient(
             provider_name=self.name,
@@ -67,9 +82,19 @@ class GarminStrategy(BaseProviderStrategy):
         return ProviderCapabilities(
             webhook_stream=True,
             webhook_callback=True,
-            max_historical_days=30,
+            max_historical_days=MAX_BACKFILL_DAYS,
             supports_training_workouts=True,
             supports_training_schedules=True,
+        )
+
+    @property
+    def coverage(self) -> ProviderCoverage:
+        return ProviderCoverage(
+            timeseries=TIMESERIES,
+            workout_fields=WORKOUT_FIELDS,
+            sleep_fields=SLEEP_FIELDS,
+            menstrual_cycle_fields=MENSTRUAL_CYCLE_FIELDS,
+            health_scores=HEALTH_SCORES,
         )
 
     def start_historical_sync(self, user_id: UUID, days: int) -> HistoricalSyncResult:
@@ -78,11 +103,14 @@ class GarminStrategy(BaseProviderStrategy):
         The ``days`` parameter is ignored - Garmin limits historical access
         to 30 days before the user's consent date.
         """
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=MAX_BACKFILL_DAYS)
         task = start_garmin_full_backfill.delay(str(user_id))
         return HistoricalSyncResult(
             task_id=task.id,
             method="webhook_backfill",
-            message=f"Garmin {self.capabilities.max_historical_days}-day backfill started. "
-            "Progress available via backfill/status.",
-            days=None,
+            message=f"Garmin {MAX_BACKFILL_DAYS}-day backfill started. Progress available via backfill/status.",
+            days=MAX_BACKFILL_DAYS,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
         )

@@ -1,0 +1,210 @@
+"""Guard tests: keep each provider's coverage.py in sync with its implementation.
+
+For every provider that declares a coverage.py, we statically scan its
+implementation files and assert that:
+
+- every emitted ``series_type=SeriesType.<x>`` is declared in ``TIMESERIES``
+- every EventRecordDetail data field it sets is declared in
+  ``WORKOUT_FIELDS``, ``SLEEP_FIELDS``, ``MENSTRUAL_CYCLE_FIELDS`` or ``MEAL_FIELDS``
+- declared field/score names are valid
+
+A drift (new metric in the code, stale coverage) fails the test.
+"""
+
+import importlib
+import re
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+from app.constants.series_types.sdk.metric_types import (
+    ANDROID_METRIC_TYPE_TO_SERIES_TYPE,
+    APPLE_METRIC_TYPE_TO_SERIES_TYPE,
+    SAMSUNG_METRIC_TYPE_TO_SERIES_TYPE,
+)
+from app.constants.series_types.sdk.workout_statistics import (
+    SAMSUNG_WORKOUT_STATISTIC_TYPE_TO_SERIES_TYPE,
+    WORKOUT_STATISTIC_TYPE_TO_SERIES_TYPE,
+)
+from app.schemas.enums import SeriesType
+from app.schemas.enums.health_score_category import HealthScoreCategory
+from app.schemas.model_crud.activities import EventRecordDetailCreate
+from app.services.providers.factory import ProviderFactory
+
+PROVIDERS_DIR = Path("app/services/providers")
+
+# Implementation files that may emit timeseries / set detail fields.
+IMPL_FILES = ("data_247.py", "workouts.py", "nutrition.py", "webhook_handler.py", "webhook_service.py")
+
+# SDK providers emit via the shared SDK pipeline (not their own data_247);
+# their timeseries is derived from the SDK maps and sleep details are set in the
+# shared sleep service, so those shared files are scanned for them too.
+SDK_PROVIDERS = {"apple", "samsung", "health_connect"}
+SDK_SHARED_FILES = (
+    Path("app/services/sdk/import_service.py"),
+    Path("app/services/sdk/sleep_service.py"),
+)
+
+# Apple alone also ingests the Health XML export.
+EXTRA_IMPL_FILES = {"apple": (Path("app/services/providers/apple/apple_xml/xml_service.py"),)}
+
+# Fields the shared SDK pipeline sets, but only from inputs this provider never sends:
+# Samsung has no `stepCount`/`recordingMethod`.
+SDK_UNREACHABLE_DETAIL_FIELDS = {"samsung": {"steps_count", "entry_source"}}
+
+# EventRecordDetail fields that are NOT part of the coverage matrix.
+STRUCTURAL_DETAIL_FIELDS = {"record_id", "energy_series"}
+
+
+def _all_detail_fields() -> set[str]:
+    """Fields across EventRecordDetailCreate AND every polymorphic subtype.
+
+    Subtypes (e.g. MenstrualCycleDetailCreate) add their own fields on top of
+    the base; scanning only the base would leave those fields untracked and let
+    a whole detail category drift out of coverage unnoticed.
+    """
+    fields: set[str] = set()
+    stack = [EventRecordDetailCreate]
+    while stack:
+        cls = stack.pop()
+        fields |= set(cls.model_fields)
+        stack.extend(cls.__subclasses__())
+    return fields
+
+
+ALL_DETAIL_FIELDS = _all_detail_fields()
+TRACKED_DETAIL_FIELDS = ALL_DETAIL_FIELDS - STRUCTURAL_DETAIL_FIELDS
+
+_SERIES_EMIT_RE = re.compile(r"series_type=SeriesType\.(\w+)")
+
+
+def _providers_with_coverage() -> list[str]:
+    return sorted(p.name for p in PROVIDERS_DIR.iterdir() if p.is_dir() and (p / "coverage.py").exists())
+
+
+def _impl_source(provider: str) -> str:
+    paths = [PROVIDERS_DIR / provider / fname for fname in IMPL_FILES]
+    if provider in SDK_PROVIDERS:
+        paths += list(SDK_SHARED_FILES)
+    paths += list(EXTRA_IMPL_FILES.get(provider, ()))
+    return "\n".join(p.read_text() for p in paths if p.exists())
+
+
+def _load_coverage(provider: str) -> ModuleType:
+    return importlib.import_module(f"app.services.providers.{provider}.coverage")
+
+
+def _timeseries(cov: ModuleType) -> frozenset:
+    return getattr(cov, "TIMESERIES", frozenset())
+
+
+def _workout_fields(cov: ModuleType) -> frozenset:
+    return getattr(cov, "WORKOUT_FIELDS", frozenset())
+
+
+def _sleep_fields(cov: ModuleType) -> frozenset:
+    return getattr(cov, "SLEEP_FIELDS", frozenset())
+
+
+def _menstrual_cycle_fields(cov: ModuleType) -> frozenset:
+    return getattr(cov, "MENSTRUAL_CYCLE_FIELDS", frozenset())
+
+
+def _meal_fields(cov: ModuleType) -> frozenset:
+    return getattr(cov, "MEAL_FIELDS", frozenset())
+
+
+def _health_scores(cov: ModuleType) -> frozenset:
+    return getattr(cov, "HEALTH_SCORES", frozenset())
+
+
+@pytest.mark.parametrize("provider", _providers_with_coverage())
+def test_emitted_timeseries_are_declared(provider: str) -> None:
+    cov = _load_coverage(provider)
+    source = _impl_source(provider)
+
+    emitted = {SeriesType[name] for name in _SERIES_EMIT_RE.findall(source)}
+    undeclared = emitted - _timeseries(cov)
+
+    assert not undeclared, (
+        f"{provider}: emits SeriesType not declared in coverage.TIMESERIES: {sorted(s.value for s in undeclared)}"
+    )
+
+
+@pytest.mark.parametrize("provider", _providers_with_coverage())
+def test_set_detail_fields_are_declared(provider: str) -> None:
+    cov = _load_coverage(provider)
+    source = _impl_source(provider)
+    declared = _workout_fields(cov) | _sleep_fields(cov) | _menstrual_cycle_fields(cov) | _meal_fields(cov)
+
+    used = {field for field in TRACKED_DETAIL_FIELDS if re.search(rf"\b{field}=", source) or f'"{field}"' in source}
+    undeclared = used - declared - SDK_UNREACHABLE_DETAIL_FIELDS.get(provider, set())
+
+    assert not undeclared, f"{provider}: sets EventRecordDetail fields not declared in coverage: {sorted(undeclared)}"
+
+
+_ENERGY_SERIES_RE = re.compile(r"energy_series\"?\]?\s*=\s*([A-Za-z_][\w.]*)")
+
+
+@pytest.mark.parametrize("provider", sorted(set(_providers_with_coverage()) - SDK_PROVIDERS))
+def test_workout_energy_comes_from_coverage(provider: str) -> None:
+    """A provider's workout energy goes to the series its coverage.py declares, never to a literal; a provider
+    whose energy semantics are not established declares none and sets none (the column keeps it)."""
+    cov = _load_coverage(provider)
+    assigned = set(_ENERGY_SERIES_RE.findall(_impl_source(provider)))
+
+    if getattr(cov, "WORKOUT_ENERGY_SERIES", None) is None:
+        assert not assigned, f"{provider}: sets energy_series but coverage declares no WORKOUT_ENERGY_SERIES"
+    else:
+        assert assigned <= {"WORKOUT_ENERGY_SERIES"}, f"{provider}: energy_series set from {sorted(assigned)}"
+
+
+_SDK_METRIC_MAP = {
+    "apple": APPLE_METRIC_TYPE_TO_SERIES_TYPE,
+    "samsung": SAMSUNG_METRIC_TYPE_TO_SERIES_TYPE,
+    "health_connect": ANDROID_METRIC_TYPE_TO_SERIES_TYPE,
+}
+
+_SDK_WORKOUT_STATISTIC_MAP = {
+    "apple": WORKOUT_STATISTIC_TYPE_TO_SERIES_TYPE,
+    "samsung": SAMSUNG_WORKOUT_STATISTIC_TYPE_TO_SERIES_TYPE,
+    "health_connect": WORKOUT_STATISTIC_TYPE_TO_SERIES_TYPE,
+}
+
+
+@pytest.mark.parametrize("provider", sorted(SDK_PROVIDERS))
+def test_sdk_timeseries_match_maps(provider: str) -> None:
+    cov = _load_coverage(provider)
+    expected = frozenset(_SDK_METRIC_MAP[provider].values()) | frozenset(_SDK_WORKOUT_STATISTIC_MAP[provider].values())
+    assert _timeseries(cov) == expected, (
+        f"{provider}: TIMESERIES must equal the union of the provider-specific SDK metric + workout-statistic maps"
+    )
+
+
+@pytest.mark.parametrize("provider", _providers_with_coverage())
+def test_strategy_exposes_full_coverage(provider: str) -> None:
+    cov = _load_coverage(provider)
+    exposed = ProviderFactory().get_provider(provider).coverage
+
+    assert exposed.timeseries == _timeseries(cov), f"{provider}: strategy drops/alters TIMESERIES"
+    assert exposed.workout_fields == _workout_fields(cov), f"{provider}: strategy drops/alters WORKOUT_FIELDS"
+    assert exposed.sleep_fields == _sleep_fields(cov), f"{provider}: strategy drops/alters SLEEP_FIELDS"
+    assert exposed.menstrual_cycle_fields == _menstrual_cycle_fields(cov), (
+        f"{provider}: strategy drops/alters MENSTRUAL_CYCLE_FIELDS"
+    )
+    assert exposed.meal_fields == _meal_fields(cov), f"{provider}: strategy drops/alters MEAL_FIELDS"
+    assert exposed.health_scores == _health_scores(cov), f"{provider}: strategy drops/alters HEALTH_SCORES"
+
+
+@pytest.mark.parametrize("provider", _providers_with_coverage())
+def test_declared_names_are_valid(provider: str) -> None:
+    cov = _load_coverage(provider)
+
+    bad_fields = (
+        _workout_fields(cov) | _sleep_fields(cov) | _menstrual_cycle_fields(cov) | _meal_fields(cov)
+    ) - ALL_DETAIL_FIELDS
+    assert not bad_fields, f"{provider}: unknown EventRecordDetail fields declared: {sorted(bad_fields)}"
+
+    assert all(isinstance(s, HealthScoreCategory) for s in _health_scores(cov))
+    assert all(isinstance(s, SeriesType) for s in _timeseries(cov))

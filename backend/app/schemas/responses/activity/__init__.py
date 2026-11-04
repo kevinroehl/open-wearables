@@ -2,15 +2,19 @@ from .data_point_responses import (
     ActiveMinutesResult,
     ActivityAggregateResult,
     IntensityMinutesResult,
+    SeriesStats,
     TimeSeriesSample,
 )
 from .events import (
+    Macros,
     Meal,
     Measurement,
     MenstrualCycleRecord,
+    NutrientValue,
     SleepSession,
+    SleepTotals,
     Workout,
-    WorkoutDetailed,
+    WorkoutTotals,
 )
 from .resilience import (
     DailyHrvScore,
@@ -18,6 +22,7 @@ from .resilience import (
 )
 from .summaries import (
     ActivitySummary,
+    ActivityTotals,
     BloodPressure,
     BodyAveraged,
     BodyLatest,
@@ -26,6 +31,7 @@ from .summaries import (
     HeartRateStats,
     IntensityMinutes,
     RecoverySummary,
+    SleepSessionSummary,
     SleepStagesSummary,
     SleepSummary,
 )
@@ -35,19 +41,24 @@ __all__ = [
     "DailyHrvScore",
     "HrvCvScoreResult",
     # Data point responses
+    "SeriesStats",
     "TimeSeriesSample",
     "ActivityAggregateResult",
     "ActiveMinutesResult",
     "IntensityMinutesResult",
     # Events
     "Workout",
-    "WorkoutDetailed",
+    "WorkoutTotals",
     "Meal",
+    "Macros",
+    "NutrientValue",
     "Measurement",
     "MenstrualCycleRecord",
     "SleepSession",
+    "SleepTotals",
     # Summaries
     "ActivitySummary",
+    "ActivityTotals",
     "BodySummary",
     "BloodPressure",
     "BodyAveraged",
@@ -57,5 +68,6 @@ __all__ = [
     "IntensityMinutes",
     "RecoverySummary",
     "SleepSummary",
+    "SleepSessionSummary",
     "SleepStagesSummary",
 ]

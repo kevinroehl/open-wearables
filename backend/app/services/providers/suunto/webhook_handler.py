@@ -24,8 +24,11 @@ from fastapi import HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
+from app.constants.celery_tasks import CeleryQueue, CeleryTask
 from app.database import DbSession
+from app.models import UserConnection
 from app.repositories import UserConnectionRepository
+from app.schemas.providers.suunto.workout_import import REQUESTED_WORKOUT_EXTENSIONS
 from app.services.providers.suunto.data_247 import Suunto247Data
 from app.services.providers.suunto.workouts import SuuntoWorkouts
 from app.services.providers.templates.base_webhook_handler import BaseWebhookHandler
@@ -42,8 +45,6 @@ SUPPORTED_EVENT_TYPES: list[str] = [
     "SUUNTO_247_RECOVERY_CREATED",
 ]
 
-_PROCESS_PUSH_TASK = "app.integrations.celery.tasks.webhook_push_task.process_webhook_push"
-
 
 class SuuntoWebhookHandler(BaseWebhookHandler):
     """Webhook handler for Suunto Sports Tracker API push events.
@@ -51,6 +52,8 @@ class SuuntoWebhookHandler(BaseWebhookHandler):
     Suunto signs each request body with HMAC-SHA256 and delivers the result in
     the ``X-HMAC-SHA256-Signature`` request header.
     """
+
+    user_id_field = "username"
 
     def __init__(self, suunto_workouts: SuuntoWorkouts, suunto_247: Suunto247Data) -> None:
         super().__init__("suunto")
@@ -61,6 +64,9 @@ class SuuntoWebhookHandler(BaseWebhookHandler):
     # ------------------------------------------------------------------
     # BaseWebhookHandler interface
     # ------------------------------------------------------------------
+
+    def find_connection(self, db: DbSession, provider_user_id: str) -> UserConnection | None:
+        return self.connection_repo.get_by_provider_username(db, "suunto", provider_user_id)
 
     def verify_signature(self, request: Request, body: bytes) -> bool:
         secret = settings.suunto_webhook_secret
@@ -117,7 +123,7 @@ class SuuntoWebhookHandler(BaseWebhookHandler):
         store_raw_payload(source="webhook", provider="suunto", payload=payload, trace_id=request_trace_id)
 
         task = celery_app.send_task(
-            _PROCESS_PUSH_TASK, args=["suunto", payload, request_trace_id], queue="webhook_sync"
+            CeleryTask.PROCESS_WEBHOOK_PUSH, args=["suunto", payload, request_trace_id], queue=CeleryQueue.WEBHOOK_SYNC
         )
         log_structured(
             logger,
@@ -195,7 +201,8 @@ class SuuntoWebhookHandler(BaseWebhookHandler):
             )
             result["status"] = "unknown_event_type"
 
-        self.connection_repo.update_last_synced_at(db, connection)
+        if result.get("status") in ("saved", "ignored"):
+            self.connection_repo.update_last_synced_at(db, connection)
         db.commit()
 
         return result
@@ -223,10 +230,20 @@ class SuuntoWebhookHandler(BaseWebhookHandler):
         )
 
         try:
-            raw_detail = self.suunto_workouts.get_workout_detail(db, user_id, str(workout_key))
+            raw_detail = self.suunto_workouts.get_workout_detail(
+                db,
+                user_id,
+                str(workout_key),
+                extensions=list(REQUESTED_WORKOUT_EXTENSIONS),
+            )
             # `/v3/workouts/{workoutKey}` returns a single dict under 'payload'; `/v3/workouts` (sync) returns a list.
             payload_detail = raw_detail.get("payload", raw_detail) if isinstance(raw_detail, dict) else raw_detail
-            workouts_list = payload_detail if isinstance(payload_detail, list) else [payload_detail]
+            if isinstance(payload_detail, list):
+                workouts_list = payload_detail
+            elif isinstance(payload_detail, dict):
+                workouts_list = [payload_detail]
+            else:
+                raise ValueError(f"Unexpected Suunto workout payload shape: {type(payload_detail).__name__}")
             saved = 0
             for raw in workouts_list:
                 if self.suunto_workouts.process_push_activity(db, user_id, raw) is not None:

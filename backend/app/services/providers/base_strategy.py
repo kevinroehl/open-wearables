@@ -1,16 +1,19 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
 from celery import current_app as celery_app
 
+from app.constants.celery_tasks import CeleryQueue, CeleryTask
 from app.models import EventRecord, User
 from app.repositories.event_record_repository import EventRecordRepository
 from app.repositories.user_connection_repository import UserConnectionRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import LiveSyncMode
+from app.schemas.enums import SeriesType
+from app.schemas.enums.health_score_category import HealthScoreCategory
 from app.services.providers.templates.base_247_data import Base247DataTemplate
 from app.services.providers.templates.base_oauth import BaseOAuthTemplate
 from app.services.providers.templates.base_webhook_handler import BaseWebhookHandler
@@ -29,6 +32,31 @@ class HistoricalSyncResult:
     days: int | None
     start_date: str | None = None
     end_date: str | None = None
+
+
+@dataclass(frozen=True)
+class ProviderCoverage:
+    """Declares what data a provider actually delivers, grouped by API layer.
+
+    timeseries:             SeriesType values available via /timeseries endpoint
+    workout_fields:         EventRecordDetail fields populated in workout records
+    sleep_fields:           EventRecordDetail fields populated in sleep records
+    menstrual_cycle_fields: EventRecordDetail fields populated in menstrual-cycle records
+    health_scores:          HealthScoreCategory values produced by this provider
+    meal_fields:            EventRecordDetail fields populated in meal records
+
+    Define the frozensets in the provider's coverage.py and assign here in
+    strategy.py — keeps implementation files free of metadata declarations.
+    A provider that delivers no data for a dimension simply omits it (the
+    default empty frozenset), so no empty placeholders are needed elsewhere.
+    """
+
+    timeseries: frozenset[SeriesType] = field(default_factory=frozenset)
+    workout_fields: frozenset[str] = field(default_factory=frozenset)
+    sleep_fields: frozenset[str] = field(default_factory=frozenset)
+    menstrual_cycle_fields: frozenset[str] = field(default_factory=frozenset)
+    health_scores: frozenset[HealthScoreCategory] = field(default_factory=frozenset)
+    meal_fields: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -59,9 +87,16 @@ class ProviderCapabilities:
         ``True``). Oura, Strava, Fitbit, Polar.
     webhook_registration_api:
         Provider exposes an API to programmatically register and update
-        webhook subscriptions. When ``True``, switching to webhook live-sync
-        mode triggers the ``register_provider_webhooks`` Celery task.
-        Polar, Oura, Strava.
+        webhook subscriptions. When ``True``, any live-sync mode change
+        triggers the ``reconcile_provider_webhooks`` Celery task, which
+        registers on ``webhook`` and deletes on ``pull``.
+        Polar, Oura, Strava, Withings.
+    webhook_subscription_per_user:
+        Subscriptions are created with a connection's own bearer token, so one
+        exists per active connection rather than one for the whole application.
+        Registration then fans out over connections and must also run when
+        live-sync mode is switched *off*, to revoke each one. Requires
+        ``webhook_registration_api=True``. Currently: Withings.
     webhook_inbound_secret:
         Provider signs inbound webhook payloads with HMAC; the signing
         secret is returned by the registration API (not pre-configured in
@@ -70,7 +105,7 @@ class ProviderCapabilities:
         Currently: Polar.
     max_historical_days:
         Hard upper limit on how far back the provider allows data to be
-        fetched. ``None`` means no known limit. Garmin: 30 days.
+        fetched. ``None`` means no known limit. Garmin: 30 days, Polar: 365 days.
     """
 
     rest_pull: bool = False
@@ -80,6 +115,7 @@ class ProviderCapabilities:
     webhook_stream: bool = False
     webhook_ping: bool = False
     webhook_registration_api: bool = False
+    webhook_subscription_per_user: bool = False
     webhook_inbound_secret: bool = False
     max_historical_days: int | None = None
     supports_training_workouts: bool = False
@@ -92,6 +128,8 @@ class ProviderCapabilities:
             raise ValueError("webhook_ping requires rest_pull=True (data must be fetched via REST after the ping)")
         if self.webhook_inbound_secret and not self.webhook_registration_api:
             raise ValueError("webhook_inbound_secret requires webhook_registration_api=True")
+        if self.webhook_subscription_per_user and not self.webhook_registration_api:
+            raise ValueError("webhook_subscription_per_user requires webhook_registration_api=True")
 
 
 class BaseProviderStrategy(ABC):
@@ -134,6 +172,15 @@ class BaseProviderStrategy(ABC):
         return self.api_base_url
 
     @property
+    def coverage(self) -> ProviderCoverage:
+        """Declares what data this provider delivers across all API layers.
+
+        Override in each provider strategy by returning a ProviderCoverage built
+        from constants defined in the provider's coverage.py.
+        """
+        return ProviderCoverage()
+
+    @property
     @abstractmethod
     def capabilities(self) -> ProviderCapabilities:
         """Declares the data delivery capabilities of this provider.
@@ -152,6 +199,22 @@ class BaseProviderStrategy(ABC):
                 )
         """
 
+    def apply_live_sync_mode(self, mode: LiveSyncMode) -> None:
+        """Bring this provider's webhook subscriptions in line with a new live-sync mode.
+
+        Dispatched rather than run inline: reconciliation talks to the provider's
+        API and, for per-user providers, fans out one task per connection.
+        Override for a provider that reconciles by some other means.
+        """
+        if not self.capabilities.webhook_registration_api:
+            return
+
+        celery_app.send_task(
+            CeleryTask.RECONCILE_PROVIDER_WEBHOOKS,
+            args=[self.name, mode],
+            queue=CeleryQueue.WEBHOOK_SYNC,
+        )
+
     def start_historical_sync(self, user_id: UUID, days: int) -> HistoricalSyncResult:
         """Dispatch an async historical data sync.
 
@@ -163,11 +226,13 @@ class BaseProviderStrategy(ABC):
         if not self.capabilities.rest_pull:
             raise UnsupportedProviderError(self.name, "historical sync")
 
+        if self.capabilities.max_historical_days is not None:
+            days = min(days, self.capabilities.max_historical_days)
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
 
         task = celery_app.send_task(
-            "app.integrations.celery.tasks.sync_vendor_data_task.sync_vendor_data",
+            CeleryTask.SYNC_VENDOR_DATA,
             kwargs={
                 "user_id": str(user_id),
                 "start_date": start_date.isoformat(),
@@ -195,6 +260,17 @@ class BaseProviderStrategy(ABC):
     def has_cloud_api(self) -> bool:
         """Returns True if provider uses cloud OAuth API."""
         return self.oauth is not None
+
+    @property
+    def credentials_configured(self) -> bool:
+        """False when a cloud provider is missing its OAuth client ID or secret.
+
+        SDK-only providers need no credentials, so they always count as configured.
+        """
+        if self.oauth is None:
+            return True
+        credentials = self.oauth.credentials
+        return bool(credentials.client_id and credentials.client_secret)
 
     @property
     def live_sync_configurable(self) -> bool:

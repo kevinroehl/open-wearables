@@ -10,14 +10,14 @@ from app.integrations.celery.tasks.garmin_training_task import (
     _mark_job_running,
     _mark_job_succeeded,
 )
-from app.services.providers.garmin.training import GarminTrainingPermanentError
+from app.services.providers.garmin.training import GarminTrainingClient, GarminTrainingPermanentError
 from tests.factories import TrainingPublishJobFactory, TrainingScheduleFactory, TrainingWorkoutFactory
 
 
 def test_successful_workout_publish_stores_garmin_ids(db: Session) -> None:
     workout = TrainingWorkoutFactory()
     job = TrainingPublishJobFactory(user=workout.user, entity_id=workout.id, entity_type="workout", action="create")
-    client = MagicMock()
+    client = MagicMock(spec=GarminTrainingClient)
     client.create_workout.return_value = {"workoutId": 321, "ownerId": 654}
     strategy = MagicMock(training=client)
 
@@ -38,7 +38,7 @@ def test_successful_schedule_publish_stores_garmin_schedule_id(db: Session) -> N
     workout = TrainingWorkoutFactory(garmin_workout_id="321", garmin_owner_id="654", publish_status="published")
     schedule = TrainingScheduleFactory(workout=workout)
     job = TrainingPublishJobFactory(user=workout.user, entity_id=schedule.id, entity_type="schedule", action="create")
-    client = MagicMock()
+    client = MagicMock(spec=GarminTrainingClient)
     client.create_schedule.return_value = {"scheduleId": 987}
     strategy = MagicMock(training=client)
 
@@ -55,7 +55,7 @@ def test_successful_schedule_publish_stores_garmin_schedule_id(db: Session) -> N
 def test_permission_failure_marks_job_and_entity_failed(db: Session) -> None:
     workout = TrainingWorkoutFactory()
     job = TrainingPublishJobFactory(user=workout.user, entity_id=workout.id, entity_type="workout", action="create")
-    client = MagicMock()
+    client = MagicMock(spec=GarminTrainingClient)
     client.assert_workout_import_permission.side_effect = GarminTrainingPermanentError(
         412,
         "MISSING_WORKOUT_IMPORT_PERMISSION",
@@ -84,7 +84,7 @@ def test_schedule_publish_waits_for_workout_publish(db: Session) -> None:
     workout = TrainingWorkoutFactory(garmin_workout_id=None)
     schedule = TrainingScheduleFactory(workout=workout)
     job = TrainingPublishJobFactory(user=workout.user, entity_id=schedule.id, entity_type="schedule", action="create")
-    client = MagicMock()
+    client = MagicMock(spec=GarminTrainingClient)
     strategy = MagicMock(training=client)
 
     running_job = _mark_job_running(db, job.id)

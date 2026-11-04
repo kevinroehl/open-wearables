@@ -23,7 +23,7 @@ updates:
         applies-to: "security-updates"
         patterns: ["*"]
 
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/frontend"
     schedule:
       interval: "monthly"

@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-open-wearables}
       POSTGRES_USER: ${DB_USER:-open-wearables}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-open-wearables}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Keep the existing database password}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U open-wearables -d open-wearables"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 10s
       retries: 15
@@ -19,16 +19,23 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: open-wearables-platform:latest
+    image: ${OW_IMAGE_PREFIX:-meala-ow}-platform:0.11-fork
     pull_policy: never
     command: scripts/start/app.sh
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/', timeout=4).read()"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10m
+      retries: 6
     env_file:
       - .env
     environment:
+      - API_PORT=8000
       - DB_HOST=db
       - REDIS_HOST=redis
     ports:
-      - "8001:8000"
+      - "${OW_API_BIND:-8001}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -37,51 +44,52 @@ services:
     restart: unless-stopped
 
   celery-worker:
-    image: open-wearables-platform:latest
+    image: ${OW_IMAGE_PREFIX:-meala-ow}-platform:0.11-fork
     pull_policy: never
     command: scripts/start/worker.sh
+    stop_grace_period: 2m
     env_file:
       - .env
     environment:
+      - API_PORT=8000
       - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
-      - redis
-      - db
-      - app
+      app:
+        condition: service_healthy
     restart: unless-stopped
 
   celery-beat:
-    image: open-wearables-platform:latest
+    image: ${OW_IMAGE_PREFIX:-meala-ow}-platform:0.11-fork
     pull_policy: never
     command: scripts/start/beat.sh
     env_file:
       - .env
     environment:
+      - API_PORT=8000
       - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
-      - redis
-      - db
-      - app
+      app:
+        condition: service_healthy
     restart: unless-stopped
 
   flower:
-    image: open-wearables-platform:latest
+    image: ${OW_IMAGE_PREFIX:-meala-ow}-platform:0.11-fork
     pull_policy: never
     command: scripts/start/flower.sh
     env_file:
       - .env
     environment:
+      - API_PORT=8000
       - DB_HOST=db
       - REDIS_HOST=redis
     ports:
       # Access Flower locally or through an SSH tunnel.
-      - "127.0.0.1:5556:5555"
+      - "127.0.0.1:${OW_FLOWER_PORT:-5556}:5555"
     depends_on:
-      - redis
-      - db
-      - app
+      app:
+        condition: service_healthy
     restart: unless-stopped
 
   redis:
@@ -94,14 +102,16 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        VITE_API_URL: ${VITE_API_URL:?Set VITE_API_URL in your environment}
-    image: open-wearables-frontend:latest
+    image: ${OW_IMAGE_PREFIX:-meala-ow}-frontend:0.11-fork
     pull_policy: never
+    environment:
+      VITE_API_URL: ${VITE_API_URL:?Set the public OW API URL}
+      API_URL: http://app:8000
     ports:
-      - "3000:3000"
+      - "${OW_PORTAL_BIND:-3000}:3000"
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
